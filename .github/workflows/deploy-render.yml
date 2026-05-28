@@ -1,0 +1,94 @@
+name: Deploy services via Render API
+
+# Селективный редеплой: смотрим, в каких папках были изменения, и через
+# Render REST API триггерим деплой только тех сервисов. autoDeploy на
+# самих сервисах выключен — иначе Render всё равно пересобрал бы всё.
+# Секреты репозитория:
+#   RENDER_API_KEY — Bearer-токен Render-аккаунта Виталия
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      services:
+        description: "Что передеплоить (через запятую: backend,cib,retail или 'all')"
+        required: false
+        default: "all"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: render-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - name: Detect changed blocks and trigger deploys
+        env:
+          MANUAL: ${{ inputs.services }}
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          SID_BACKEND: srv-d8bjkpernols73ctqa90
+          SID_CIB: srv-d8bjkq37uimc73dpves0
+          SID_RETAIL: srv-d8bjkr3eo5us738o11hg
+        run: |
+          set -e
+          if [ -z "$RENDER_API_KEY" ]; then
+            echo "::error::secret RENDER_API_KEY is empty"
+            exit 1
+          fi
+          MAP="backend:backend:$SID_BACKEND
+          cib:cib:$SID_CIB
+          retail:retail:$SID_RETAIL"
+
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            CHANGED="__manual__"
+          elif [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            CHANGED=$(git ls-files)
+          else
+            CHANGED=$(git diff --name-only "$BEFORE" "$AFTER" || true)
+          fi
+          RENDER_ALL=no
+          echo "$CHANGED" | grep -qE "^(render\.yaml|seed/)" && RENDER_ALL=yes
+
+          echo "$MAP" | while IFS=: read -r NAME PATHPREFIX SID; do
+            NAME=$(echo "$NAME" | tr -d '[:space:]')
+            [ -z "$NAME" ] && continue
+            HIT=no
+            if [ "$EVENT" = "workflow_dispatch" ]; then
+              REQ="${MANUAL:-all}"
+              { [ "$REQ" = "all" ] || echo ",$REQ," | grep -q ",$NAME,"; } && HIT=yes
+            else
+              echo "$CHANGED" | grep -qE "^${PATHPREFIX}/" && HIT=yes
+              [ "$RENDER_ALL" = "yes" ] && HIT=yes
+            fi
+            if [ "$HIT" != "yes" ]; then
+              echo "skip $NAME"
+              continue
+            fi
+            if [ -z "$SID" ]; then
+              echo "::warning::service id for $NAME is empty — skip"
+              continue
+            fi
+            echo " → trigger $NAME ($SID)"
+            HTTP=$(curl -sS -o /tmp/resp.json -w "%{http_code}" -X POST \
+              -H "Authorization: Bearer $RENDER_API_KEY" \
+              -H "Content-Type: application/json" \
+              "https://api.render.com/v1/services/$SID/deploys" \
+              -d '{"clearCache":"do_not_clear"}')
+            if [ "$HTTP" != "201" ] && [ "$HTTP" != "200" ]; then
+              echo "::error::Render API returned $HTTP for $NAME"
+              cat /tmp/resp.json
+              exit 1
+            fi
+            echo "   ok: $(python3 -c 'import json,sys; d=json.load(open("/tmp/resp.json")); print(d.get("id","?"))')"
+          done
