@@ -57,6 +57,9 @@ async def transactions(client_id: str, request: Request) -> dict:
 
 @app.post("/api/transfer")
 async def api_transfer(payload: dict) -> dict:
+    # Новая комиссия за перевод 1% — считаем и кладём в payload.
+    commission = payload["amount_rub"] * TRANSFER_FEE_PCT / 100
+    payload["commission_rub"] = commission
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(f"{BACKEND_URL}/api/transfer", json=payload)
