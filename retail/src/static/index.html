@@ -35,30 +35,6 @@
       background: var(--surface);
       min-height: 100vh;
       box-shadow: 0 0 60px rgba(60,52,40,0.08);
-      position: relative;
-    }
-
-    /* вертолётик пролетает над верхом главного экрана */
-    .heli-strip {
-      position: absolute; left: 0; right: 0; top: 56px; height: 42px;
-      overflow: hidden; pointer-events: none; z-index: 9;
-    }
-    .heli {
-      position: absolute; left: 0; top: 6px;
-      font-size: 24px; line-height: 1;
-      animation: heli-fly 6.5s linear infinite;
-      will-change: transform;
-      filter: drop-shadow(0 2px 3px rgba(0,0,0,0.35));
-    }
-    @keyframes heli-fly {
-      0%   { transform: translate(-60px, 4px) rotate(-4deg); }
-      25%  { transform: translate(120px, -8px) rotate(3deg); }
-      50%  { transform: translate(230px, 2px) rotate(-3deg); }
-      75%  { transform: translate(350px, -8px) rotate(3deg); }
-      100% { transform: translate(480px, 4px) rotate(-4deg); }
-    }
-    @media (prefers-reduced-motion: reduce) {
-      .heli { animation: none; left: 50%; transform: translateX(-50%); }
     }
     .topbar {
       background: var(--text); color: var(--bg);
@@ -187,30 +163,10 @@
     .client-picker select { width: 100%; margin-top: 4px; padding: 8px 10px;
       border: 1px solid var(--rule); background: var(--surface); border-radius: 6px;
       font-family: inherit; font-size: 13px; }
-
-    .product {
-      display: grid; grid-template-columns: 1fr auto; gap: 6px;
-      padding: 12px 0; border-bottom: 1px solid var(--rule); align-items: center;
-    }
-    .product:last-child { border-bottom: 0; }
-    .product .pname { font-size: 13px; font-weight: 500; }
-    .product .pkind { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .product .prate { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
-    .product .prate small { display: block; font-weight: 400; color: var(--muted); font-size: 10px; }
-
-    .decision { margin-top: 10px; }
-    .decision .dl {
-      display: flex; justify-content: space-between; gap: 12px;
-      padding: 8px 0; border-bottom: 1px solid var(--rule); font-size: 13px;
-    }
-    .decision .dl:last-child { border-bottom: 0; }
-    .decision .dl .k { color: var(--text-2); }
-    .decision .dl .v { font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; }
   </style>
 </head>
 <body>
   <div class="phone">
-    <div class="heli-strip"><span class="heli">🚁</span></div>
     <div class="topbar">
       <div><span class="logo"></span><span class="name">Райф</span></div>
       <div class="who" id="topbar-who"></div>
@@ -228,7 +184,6 @@
 
     <div class="tabs">
       <button class="tab active" data-tab="transfers">Переводы</button>
-      <button class="tab" data-tab="credits">Кредиты</button>
     </div>
 
     <div class="tab-pane show" data-pane="transfers">
@@ -248,29 +203,6 @@
 
       <div class="section-title" style="margin-top:24px">Последние операции</div>
       <div id="tx-list" class="tx-list"></div>
-    </div>
-
-    <div class="tab-pane" data-pane="credits">
-      <div class="section-title">Кредитные продукты</div>
-      <div id="credit-products"><div class="empty">Загружаем каталог…</div></div>
-
-      <div class="section-title" style="margin-top:24px">Заявка на кредит</div>
-      <form id="credit-form" autocomplete="off">
-        <div class="form-row">
-          <label>Продукт</label>
-          <select name="product" id="credit-product"></select>
-        </div>
-        <div class="form-row">
-          <label>Сумма, ₽</label>
-          <input name="amount" type="number" min="1" placeholder="например, 300000" />
-        </div>
-        <div class="form-row">
-          <label>Срок, мес.</label>
-          <input name="term" type="number" min="1" value="12" />
-        </div>
-        <button class="btn primary" type="submit">Оформить заявку</button>
-      </form>
-      <div id="credit-result"></div>
     </div>
   </div>
 
@@ -409,126 +341,7 @@
       }
     });
 
-    // ---- кредиты ----
-    const creditProducts = document.getElementById("credit-products");
-    const creditProductSel = document.getElementById("credit-product");
-    const creditResult = document.getElementById("credit-result");
-
-    function isCreditKind(kind) {
-      const k = String(kind || "").toLowerCase();
-      return k.includes("credit") || k.includes("loan") || k.includes("кредит")
-          || k.includes("ипотек") || k.includes("рассроч") || k.includes("займ");
-    }
-
-    async function loadProducts() {
-      try {
-        const r = await fetch("/products");
-        const d = await r.json();
-        const items = d.items || [];
-        const credit = items.filter(p => isCreditKind(p.kind));
-        creditProductSel.innerHTML =
-          `<option value="">— на усмотрение банка —</option>` +
-          credit.map(p =>
-            `<option value="${p.id}">${p.name || p.id}${p.rate_pct!=null?` · ${p.rate_pct}%`:""}</option>`
-          ).join("");
-        if (!credit.length) {
-          creditProducts.innerHTML =
-            `<div class="empty">Кредитные продукты ещё не добавлены в каталог —
-             появятся, когда коллега из блока решений их опубликует.</div>`;
-          return;
-        }
-        creditProducts.innerHTML = credit.map(p => {
-          const rate = (p.rate_pct != null)
-            ? `<div class="prate">${p.rate_pct}%<small>ставка</small></div>`
-            : `<div class="prate"></div>`;
-          return `<div class="product">
-            <div>
-              <div class="pname">${p.name || p.id}</div>
-              <div class="pkind">${p.kind || ""}</div>
-            </div>
-            ${rate}
-          </div>`;
-        }).join("");
-      } catch(e) {
-        creditProducts.innerHTML =
-          `<div class="empty">Каталог недоступен (блок решений ещё не на связи)</div>`;
-        creditProductSel.innerHTML = `<option value="">— без выбора —</option>`;
-      }
-    }
-
-    const creditForm = document.getElementById("credit-form");
-    creditForm.addEventListener("submit", async (ev) => {
-      ev.preventDefault();
-      creditResult.innerHTML = "";
-      const opt = sel.selectedOptions[0];
-      if (!opt) { creditResult.innerHTML = `<div class="alert error">сначала выбери профиль</div>`; return; }
-      const data = new FormData(ev.target);
-      const amount = +data.get("amount");
-      const term = +data.get("term");
-      if (amount <= 0) {
-        creditResult.innerHTML = `<div class="alert error">введи сумму</div>`;
-        return;
-      }
-      const payload = {
-        client_id: opt.value,
-        product_id: data.get("product") || null,
-        amount_rub: amount,
-        term_months: term || null,
-      };
-      creditResult.innerHTML = `<div class="alert info">Отправляем заявку…</div>`;
-      try {
-        const r = await fetch("/api/credit-apply", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify(payload),
-        });
-        const d = await r.json();
-        if (!r.ok) {
-          creditResult.innerHTML = `<div class="alert error">${d.detail || "ошибка"}</div>`;
-          return;
-        }
-        renderDecision(d);
-      } catch(e) {
-        creditResult.innerHTML = `<div class="alert error">сервер не ответил</div>`;
-      }
-    });
-
-    function renderDecision(d) {
-      if (d.decision === "pending_integration") {
-        creditResult.innerHTML =
-          `<div class="alert info">Заявка собрана, клиент проверен по данным банка.
-           Решение пока не вынесено: ${d.message || "блок решений ещё не подключён"}.</div>`;
-        return;
-      }
-      const res = d.result || d;
-      let verdict = res.decision ?? res.status ?? res.approved ?? res.result;
-      if (typeof verdict === "string") verdict = verdict.toLowerCase();
-      const ok  = [true, "approved", "approve", "ok", "yes", "accepted", "одобрено", "одобрен"].includes(verdict);
-      const bad = [false, "declined", "denied", "rejected", "reject", "no", "отказ", "отказано"].includes(verdict);
-      const cls  = ok ? "ok" : (bad ? "error" : "info");
-      const head = ok ? "Заявка одобрена" : (bad ? "Отказано" : "Заявка обработана");
-
-      const rows = [];
-      const push = (k, v) => { if (v !== undefined && v !== null && v !== "") rows.push([k, v]); };
-      push("Одобренная сумма", res.approved_amount_rub != null ? fmt.format(res.approved_amount_rub)+" ₽" : null);
-      push("Ставка", res.rate_pct != null ? res.rate_pct+"%" : null);
-      push("Срок", res.term_months != null ? res.term_months+" мес." : null);
-      push("Платёж в месяц", res.monthly_payment_rub != null ? fmt.format(res.monthly_payment_rub)+" ₽" : null);
-      push("Причина", res.reason || res.message);
-      if (!rows.length) {
-        Object.entries(res).forEach(([k, v]) => {
-          if (v !== null && typeof v !== "object") push(k, String(v));
-        });
-      }
-      const rowsHtml = rows.map(([k, v]) =>
-        `<div class="dl"><span class="k">${k}</span><span class="v">${v}</span></div>`).join("");
-      creditResult.innerHTML =
-        `<div class="alert ${cls}">${head}${d.client && d.client.name ? " · "+d.client.name : ""}</div>
-         <div class="decision">${rowsHtml}</div>`;
-    }
-
     loadClients();
-    loadProducts();
   })();
   </script>
 </body>
