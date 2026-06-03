@@ -264,6 +264,41 @@ Rates by segment — mass: 2/1.5/0.5%, mass_affluent: 3/2/1%, premium: 5/3/1.5%,
 
 On activation the card is also recorded on the customer's profile via backend `POST /clients/{id}/products`. The response includes `recorded` (true/false) — best-effort, so a transient backend hiccup won't block the activation itself.
 
+### POST /referral/validate
+
+Referral programme rules engine. cib owns the policy (bonus size, eligibility, cooldown); retail/backend act on the verdict. Decides whether a proposed referral-code redemption is allowed and how big the bonus is. Request body:
+
+```json
+{
+  "referrer_id": "c-01000",       // existing customer whose code is used
+  "referee_id": "c-01001",        // customer redeeming the code
+  "code": "ANNA-7X2K",            // the referral code string (optional)
+  "referrer_last_referral_at": "2026-05-01"  // optional ISO date, enables the cooldown check
+}
+```
+
+Rules enforced: (1) you can't refer yourself; (2) a referee can redeem at most one code ever — detected by the `referral_bonus` marker product on their profile; (3) an optional "new customer only" window on the referee (off by default — the current customer base is long-standing; flip `REFERRAL_REFEREE_MAX_TENURE_DAYS` to require it); (4) a referrer cooldown between bonuses, enforced only when you pass `referrer_last_referral_at`.
+
+On approval the reward is `referrer_bonus_rub`, which **varies by the referrer's segment** (mass 500, mass_affluent 1000, premium 2000, private 5000, sme 1500 ₽), plus a flat `referee_bonus_rub` welcome bonus (500 ₽) for the new customer. Returns:
+
+```json
+{
+  "allowed": true,
+  "reasons": [],
+  "code": "ANNA-7X2K",
+  "referrer": { "client_id": "c-01000", "name": "Анна Козлова", "segment": "premium" },
+  "referee":  { "client_id": "c-01001", "name": "Александр Кузнецов" },
+  "bonus": { "referrer_bonus_rub": 2000, "referee_bonus_rub": 500, "total_rub": 2500, "currency": "RUB" },
+  "policy": { "self_referral_blocked": true, "one_redemption_per_referee": true,
+              "referee_marker_product": "referral_bonus", "referee_max_tenure_days": null,
+              "referrer_cooldown_days": 30, "bonus_by_segment_rub": { "...": 0 }, "referee_bonus_rub": 500 }
+}
+```
+
+When not allowed, `allowed` is `false`, `reasons` lists every failed rule, and all bonus amounts are 0. HTTP 404 if either client is unknown.
+
+**After acting on an approval**, the caller should pay out the bonuses and record the `referral_bonus` marker product on the referee via backend `POST /clients/{id}/products` — that's what makes rule (2) stick for next time. This endpoint is a pure decision (no side effects).
+
 ## Кого я зову у соседей
 
 - backend: `GET /clients/{client_id}` — full customer card (income, risk score, overdue history)
