@@ -15,6 +15,7 @@ Product catalogue. Returns `{total, items: [products]}`. Each product has at lea
 Current products:
 - `card-debit-cashback` — Debit card with cashback (groceries/transport/other, rates vary by segment)
 - `card-credit` — Credit card, 24.9%, 55-day grace period
+- `card-credit-secured` — Secured credit card for borderline customers, 29.9%, 30-day grace, limit up to 30,000 rubles
 - `deposit-base` — Term deposit, 14%
 - `credit-consumer` — Consumer loan, 18.9%
 
@@ -62,7 +63,7 @@ Returns a personalised credit limit based on income × segment multiplier, adjus
 }
 ```
 
-Declined if: overdue history, risk score > 0.60, or income < 25,000 rubles. On decline, `approved: false`, `limit_rub: 0`, `reasons` lists why.
+If the customer doesn't qualify for the standard card but is borderline (risk ≤ 0.72, income ≥ 18,000, no overdue history), the response automatically offers the secured card instead — `product_id` in the response will be `"card-credit-secured"` and a `note` field explains why. Only a hard decline (overdue history, risk > 0.72, or income < 18,000) returns `approved: false`.
 
 ### POST /card/activate
 

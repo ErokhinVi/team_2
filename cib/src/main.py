@@ -38,8 +38,11 @@ CREDIT_CARD_LIMIT_MULTIPLIER: dict[str, float] = {
     "private":       10.0,
     "sme":           3.0,
 }
-CREDIT_CARD_MAX_RISK = 0.60   # no credit card above this risk score
+CREDIT_CARD_MAX_RISK = 0.60        # standard credit card
 CREDIT_CARD_MIN_INCOME = 25_000
+SECURED_CARD_MAX_RISK = 0.72       # secured card for borderline customers
+SECURED_CARD_MIN_INCOME = 18_000
+SECURED_CARD_MAX_LIMIT = 30_000    # hard cap on secured card limit
 
 PRODUCTS = [
     {
@@ -54,6 +57,14 @@ PRODUCTS = [
         "name": "Кредитная карта",
         "rate_pct": 24.9,
         "grace_period_days": 55,
+    },
+    {
+        "id": "card-credit-secured",
+        "kind": "credit_card",
+        "name": "Кредитная карта (обеспеченная)",
+        "rate_pct": 29.9,
+        "grace_period_days": 30,
+        "max_limit_rub": SECURED_CARD_MAX_LIMIT,
     },
     {"id": "deposit-base", "kind": "deposit", "name": "Срочный депозит", "rate_pct": 14.0},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
@@ -210,16 +221,30 @@ async def card_credit_limit(req: ActivateRequest) -> dict:
     risk = customer.get("risk_score", 1.0)
     segment = customer.get("segment", "mass")
 
-    # Eligibility checks
-    reasons: list[str] = []
+    hard_decline_reasons: list[str] = []
     if customer.get("has_overdue_history"):
-        reasons.append("overdue payment history")
-    if risk > CREDIT_CARD_MAX_RISK:
-        reasons.append(f"risk score too high ({risk:.2f})")
-    if income < CREDIT_CARD_MIN_INCOME:
-        reasons.append(f"income below minimum ({income} < {CREDIT_CARD_MIN_INCOME})")
+        hard_decline_reasons.append("overdue payment history")
 
-    if reasons:
+    # Check eligibility for standard card
+    standard_eligible = (
+        not hard_decline_reasons
+        and risk <= CREDIT_CARD_MAX_RISK
+        and income >= CREDIT_CARD_MIN_INCOME
+    )
+
+    # Check eligibility for secured card (borderline customers)
+    secured_eligible = (
+        not hard_decline_reasons
+        and not standard_eligible
+        and risk <= SECURED_CARD_MAX_RISK
+        and income >= SECURED_CARD_MIN_INCOME
+    )
+
+    if not standard_eligible and not secured_eligible:
+        reasons = hard_decline_reasons or [
+            f"risk score too high ({risk:.2f})" if risk > SECURED_CARD_MAX_RISK else
+            f"income below minimum ({income} < {SECURED_CARD_MIN_INCOME})"
+        ]
         return {
             "client_id": req.client_id,
             "product_id": req.product_id,
@@ -229,24 +254,33 @@ async def card_credit_limit(req: ActivateRequest) -> dict:
             "customer_name": customer.get("name"),
         }
 
-    # Calculate limit: income × segment multiplier, reduced by risk
-    multiplier = CREDIT_CARD_LIMIT_MULTIPLIER.get(segment, 2.0)
-    raw_limit = income * multiplier
-    # Risk adjustment: reduce limit proportionally (risk 0 → full limit, risk 0.6 → 40% reduction)
-    risk_factor = 1.0 - risk
-    limit = round(raw_limit * risk_factor / 10_000) * 10_000  # round to nearest 10k
+    if standard_eligible:
+        multiplier = CREDIT_CARD_LIMIT_MULTIPLIER.get(segment, 2.0)
+        raw_limit = income * multiplier * (1.0 - risk)
+        limit = round(raw_limit / 10_000) * 10_000
+        used_product = product
+        note = None
+    else:
+        # Secured card: small fixed limit, higher rate
+        secured = next(p for p in PRODUCTS if p["id"] == "card-credit-secured")
+        limit = min(round(income * 0.5 / 5_000) * 5_000, SECURED_CARD_MAX_LIMIT)
+        used_product = secured
+        note = "Secured card offered due to borderline risk profile. Lower limit, no grace period extensions."
 
-    return {
+    result = {
         "client_id": req.client_id,
-        "product_id": req.product_id,
+        "product_id": used_product["id"],
         "approved": True,
         "limit_rub": limit,
-        "rate_pct": product["rate_pct"],
-        "grace_period_days": product["grace_period_days"],
+        "rate_pct": used_product["rate_pct"],
+        "grace_period_days": used_product["grace_period_days"],
         "segment": segment,
         "reasons": [],
         "customer_name": customer.get("name"),
     }
+    if note:
+        result["note"] = note
+    return result
 
 
 @app.get("/", response_class=HTMLResponse)
