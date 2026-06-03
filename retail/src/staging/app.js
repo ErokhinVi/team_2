@@ -756,9 +756,10 @@
         }
       }
 
-      // Show only the active pane
+      // Show only the active pane. Scope to `.tab-pane` — sub-tab buttons
+      // also carry data-pane="..." and querySelector picks them up first.
       document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("show"));
-      const target = document.querySelector('[data-pane="' + state.activePane + '"]');
+      const target = document.querySelector('.tab-pane[data-pane="' + state.activePane + '"]');
       if (target) target.classList.add("show");
 
       // Re-apply i18n for fresh strip nodes
