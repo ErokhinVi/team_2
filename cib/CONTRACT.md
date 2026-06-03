@@ -54,6 +54,21 @@ Returns:
 `approved` is `true` or `false`. `reasons` lists why a decision was declined (empty on approval).
 HTTP 404 if client or product is not found. HTTP 400 if product is not a credit product.
 
+### GET /clients/{client_id}/pre-approved
+
+Pre-approved offers — runs cib's decision logic proactively so the app can show "you're already approved for X" instead of making the customer apply. Skips products the customer already holds. Returns `{client_id, customer_name, total, offers: [...]}`. Each offer:
+
+```json
+{
+  "product_id": "credit-consumer", "type": "loan", "name": "Потребительский кредит",
+  "headline": "You're pre-approved for a loan up to 480 000 ₽",
+  "amount_rub": 480000, "rate_pct": 18.9,
+  "action": { "method": "POST", "path": "/credit/decide" }
+}
+```
+
+Covers consumer loans (`amount_rub`), credit cards (`limit_rub`, standard or secured) and mortgages (`max_loan_rub`, 20-yr pre-qualification). The app displays the headline and, on a tap, calls `action` to formalise it. Empty `offers` if the customer pre-qualifies for nothing new.
+
 ### GET /clients/{client_id}/next-best-offers
 
 Turns backend's analytical recommendations (`GET /clients/{id}/recommendations`) into ready-to-act offers. For each suggestion, attaches cib's real product terms and the exact call the app should make. Param `limit` (default 5).

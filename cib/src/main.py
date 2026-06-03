@@ -1049,6 +1049,107 @@ def _product_highlight(p: dict) -> str:
     return ""
 
 
+def _preapprove_consumer_loan(c: dict) -> dict | None:
+    """Largest consumer loan the customer is already approved for, or None."""
+    income = c.get("income_rub", 0)
+    risk = c.get("risk_score", 1.0)
+    if c.get("has_overdue_history") or income < MIN_INCOME_RUB or risk > MAX_RISK_SCORE_STANDARD:
+        return None
+    amount = min(round(income * 12 * (1.0 - risk) / 10_000) * 10_000, 3_000_000)
+    if amount < 30_000:
+        return None
+    prod = next(p for p in PRODUCTS if p["id"] == "credit-consumer")
+    return {
+        "product_id": "credit-consumer", "type": "loan", "name": prod["name"],
+        "headline": f"You're pre-approved for a loan up to {amount:,} ₽".replace(",", " "),
+        "amount_rub": amount, "rate_pct": prod["rate_pct"],
+        "action": {"method": "POST", "path": "/credit/decide"},
+    }
+
+
+def _preapprove_credit_card(c: dict) -> dict | None:
+    """Credit card limit the customer is already approved for, or None.
+    Mirrors the logic of POST /card/credit-limit."""
+    income = c.get("income_rub", 0)
+    risk = c.get("risk_score", 1.0)
+    segment = c.get("segment", "mass")
+    if c.get("has_overdue_history"):
+        return None
+    standard = risk <= CREDIT_CARD_MAX_RISK and income >= CREDIT_CARD_MIN_INCOME
+    secured = (not standard) and risk <= SECURED_CARD_MAX_RISK and income >= SECURED_CARD_MIN_INCOME
+    if not standard and not secured:
+        return None
+    if standard:
+        mult = CREDIT_CARD_LIMIT_MULTIPLIER.get(segment, 2.0)
+        limit = round(income * mult * (1.0 - risk) / 10_000) * 10_000
+        pid = "card-credit"
+    else:
+        limit = min(round(income * 0.5 / 5_000) * 5_000, SECURED_CARD_MAX_LIMIT)
+        pid = "card-credit-secured"
+    if limit < 10_000:
+        return None
+    prod = next(p for p in PRODUCTS if p["id"] == pid)
+    return {
+        "product_id": pid, "type": "credit_card", "name": prod["name"],
+        "headline": f"A credit card with a {limit:,} ₽ limit is ready for you".replace(",", " "),
+        "limit_rub": limit, "rate_pct": prod["rate_pct"],
+        "grace_period_days": prod["grace_period_days"],
+        "action": {"method": "POST", "path": "/card/credit-limit"},
+    }
+
+
+def _prequalify_mortgage(c: dict) -> dict | None:
+    """Maximum mortgage the customer pre-qualifies for (20-yr term), or None."""
+    income = c.get("income_rub", 0)
+    risk = c.get("risk_score", 1.0)
+    if c.get("has_overdue_history") or income < MORTGAGE_MIN_INCOME or risk > MORTGAGE_MAX_RISK:
+        return None
+    prod = next(p for p in PRODUCTS if p["id"] == "mortgage")
+    term_years = 20
+    n = term_years * 12
+    r = prod["rate_pct"] / 100 / 12
+    max_payment = income * MORTGAGE_MAX_DTI
+    max_loan = round(max_payment * (1 - (1 + r) ** -n) / r / 100_000) * 100_000
+    if max_loan < 500_000:
+        return None
+    return {
+        "product_id": "mortgage", "type": "mortgage", "name": prod["name"],
+        "headline": f"Pre-qualified for a mortgage up to {max_loan:,} ₽".replace(",", " "),
+        "max_loan_rub": max_loan, "rate_pct": prod["rate_pct"], "term_years": term_years,
+        "action": {"method": "POST", "path": "/mortgage/decide"},
+    }
+
+
+@app.get("/clients/{client_id}/pre-approved")
+async def pre_approved(client_id: str) -> dict:
+    """Pre-approved offers: runs cib's decision logic proactively so the app can
+    show 'you're already approved for X' instead of making the customer apply.
+    Skips products the customer already holds."""
+    customer = await _fetch_customer(client_id)
+    held = set(customer.get("products", []))
+
+    offers = []
+    if "consumer_credit" not in held:
+        o = _preapprove_consumer_loan(customer)
+        if o:
+            offers.append(o)
+    if "credit_card" not in held:
+        o = _preapprove_credit_card(customer)
+        if o:
+            offers.append(o)
+    if "mortgage" not in held:
+        o = _prequalify_mortgage(customer)
+        if o:
+            offers.append(o)
+
+    return {
+        "client_id": client_id,
+        "customer_name": customer.get("name"),
+        "total": len(offers),
+        "offers": offers,
+    }
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index() -> str:
     def card(p: dict) -> str:
