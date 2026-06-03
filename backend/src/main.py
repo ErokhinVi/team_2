@@ -48,6 +48,22 @@ _transactions: list[dict[str, Any]] = []
 # Журнал открытых продуктов: кто, какой продукт и когда оформил.
 _product_events: list[dict[str, Any]] = []
 _product_events_by_client: dict[str, list[dict[str, Any]]] = {}
+
+# Инвестиции: каталог инструментов с текущей ценой, портфели клиентов и
+# журнал заявок. Цены — фиксированный каталог (для воспроизводимости);
+# текущая стоимость портфеля считается по этим ценам на лету.
+_instruments: dict[str, dict[str, Any]] = {
+    "SBER": {"symbol": "SBER", "name": "Сбербанк, акция", "price_rub": 312},
+    "GAZP": {"symbol": "GAZP", "name": "Газпром, акция", "price_rub": 168},
+    "LKOH": {"symbol": "LKOH", "name": "Лукойл, акция", "price_rub": 7240},
+    "YNDX": {"symbol": "YNDX", "name": "Яндекс, акция", "price_rub": 4115},
+    "OFZ26": {"symbol": "OFZ26", "name": "ОФЗ, облигация", "price_rub": 985},
+    "FXGD": {"symbol": "FXGD", "name": "Фонд на золото", "price_rub": 152},
+}
+# Портфель клиента: symbol -> {symbol, qty, avg_cost_rub}.
+_holdings_by_client: dict[str, dict[str, dict[str, Any]]] = {}
+_orders: list[dict[str, Any]] = []
+_orders_by_client: dict[str, list[dict[str, Any]]] = {}
 _credit_cards: list[dict[str, Any]] = []
 _cards_by_id: dict[str, dict[str, Any]] = {}
 _cards_by_client: dict[str, list[dict[str, Any]]] = {}
@@ -509,3 +525,150 @@ async def list_client_products(client_id: str) -> dict:
         "events_total": len(events),
         "events": events,
     }
+
+
+# ---------- Инвестиции: портфель и заявки ----------
+
+@app.get("/instruments")
+async def list_instruments() -> dict:
+    """Каталог доступных инструментов с текущей ценой."""
+    items = list(_instruments.values())
+    return {"total": len(items), "items": items}
+
+
+def _portfolio_view(client_id: str) -> dict:
+    """Собрать портфель клиента: позиции с текущей стоимостью и P/L."""
+    holdings = _holdings_by_client.get(client_id, {})
+    positions = []
+    market_value = 0
+    cost_basis = 0
+    for h in holdings.values():
+        instr = _instruments.get(h["symbol"], {})
+        price = int(instr.get("price_rub", 0))
+        qty = int(h["qty"])
+        value = price * qty
+        cost = int(h["avg_cost_rub"]) * qty
+        market_value += value
+        cost_basis += cost
+        positions.append({
+            "symbol": h["symbol"],
+            "name": instr.get("name", h["symbol"]),
+            "qty": qty,
+            "avg_cost_rub": int(h["avg_cost_rub"]),
+            "current_price_rub": price,
+            "market_value_rub": value,
+            "cost_basis_rub": cost,
+            "unrealized_pnl_rub": value - cost,
+        })
+    positions.sort(key=lambda p: p["market_value_rub"], reverse=True)
+    return {
+        "client_id": client_id,
+        "positions": positions,
+        "market_value_rub": market_value,
+        "cost_basis_rub": cost_basis,
+        "unrealized_pnl_rub": market_value - cost_basis,
+    }
+
+
+@app.get("/clients/{client_id}/portfolio")
+async def get_portfolio(client_id: str) -> dict:
+    """Инвестиционный портфель клиента: позиции, текущая стоимость, прибыль/убыток."""
+    if client_id not in _clients_by_id:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    return _portfolio_view(client_id)
+
+
+def _process_order(client_id: str, payload: dict) -> dict:
+    """Обработать заявку buy/sell. buy — списывает деньги со счёта и
+    добавляет бумаги; sell — продаёт бумаги и зачисляет деньги на счёт."""
+    client = _clients_by_id.get(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    side = (payload.get("side") or "").strip().lower()
+    if side not in {"buy", "sell"}:
+        raise HTTPException(status_code=400, detail="side должен быть buy или sell")
+    symbol = (payload.get("symbol") or "").strip().upper()
+    instr = _instruments.get(symbol)
+    if not instr:
+        raise HTTPException(status_code=400, detail=f"инструмент {symbol} не найден")
+    qty = int(payload.get("qty") or 0)
+    if qty <= 0:
+        raise HTTPException(status_code=400, detail="qty должен быть положительным")
+
+    price = int(instr["price_rub"])
+    gross = price * qty
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+    holdings = _holdings_by_client.setdefault(client_id, {})
+
+    if side == "buy":
+        if gross > client["balance_rub"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"недостаточно средств: нужно {gross} ₽, на счёте {client['balance_rub']} ₽",
+            )
+        client["balance_rub"] -= gross
+        pos = holdings.get(symbol)
+        if pos:
+            total_qty = pos["qty"] + qty
+            pos["avg_cost_rub"] = int(
+                round((pos["avg_cost_rub"] * pos["qty"] + price * qty) / total_qty))
+            pos["qty"] = total_qty
+        else:
+            holdings[symbol] = {"symbol": symbol, "qty": qty, "avg_cost_rub": price}
+        tx_type = "invest_buy"
+        amount_signed = -gross
+    else:  # sell
+        pos = holdings.get(symbol)
+        if not pos or pos["qty"] < qty:
+            have = pos["qty"] if pos else 0
+            raise HTTPException(
+                status_code=400,
+                detail=f"недостаточно бумаг {symbol}: есть {have}, продаёте {qty}",
+            )
+        client["balance_rub"] += gross
+        pos["qty"] -= qty
+        if pos["qty"] == 0:
+            del holdings[symbol]
+        tx_type = "invest_sell"
+        amount_signed = gross
+
+    tx = {
+        "id": f"t-{100000 + len(_transactions) + 1:08d}",
+        "client_id": client_id, "type": tx_type, "amount_rub": amount_signed,
+        "ts": now_iso, "counterparty": symbol, "cashback_rub": 0,
+    }
+    _transactions.append(tx)
+
+    order = {
+        "order_id": f"ord-{len(_orders) + 1:06d}",
+        "client_id": client_id, "side": side, "symbol": symbol, "qty": qty,
+        "price_rub": price, "gross_rub": gross, "ts": now_iso, "tx_id": tx["id"],
+    }
+    _orders.append(order)
+    _orders_by_client.setdefault(client_id, []).append(order)
+
+    return {
+        "status": "ok",
+        "order": order,
+        "new_balance_rub": client["balance_rub"],
+        "portfolio": _portfolio_view(client_id),
+    }
+
+
+@app.post("/clients/{client_id}/orders")
+@app.post("/api/clients/{client_id}/orders")
+async def place_order(client_id: str, payload: dict) -> dict:
+    """Заявка на покупку/продажу инструмента. JSON `{side, symbol, qty}`,
+    где side = buy|sell. Возвращает `{status, order, new_balance_rub, portfolio}`."""
+    return _process_order(client_id, payload)
+
+
+@app.get("/clients/{client_id}/orders")
+async def list_orders(
+    client_id: str, limit: int = Query(default=50, ge=1, le=500),
+) -> dict:
+    """История заявок клиента, новые сверху."""
+    if client_id not in _clients_by_id:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    items = list(reversed(_orders_by_client.get(client_id, [])))[:limit]
+    return {"total": len(_orders_by_client.get(client_id, [])), "items": items}
