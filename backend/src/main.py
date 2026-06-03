@@ -976,6 +976,22 @@ RECO_PREMIUM_MIN_BALANCE = 500000
 RECO_INVEST_MIN_BALANCE = 150000
 _RECO_AFFLUENT = {"mass_affluent", "premium", "private", "sme"}
 
+# Какие коды в products клиента означают «этот продукт у него уже есть» — чтобы
+# не предлагать то, чем клиент уже владеет. Коды cib пишет к нам через
+# POST /clients/{id}/products; здесь учитываем разные варианты их написания.
+_RECO_HELD_EQUIVALENTS = {
+    "deposit-12m": {"deposit", "deposit-12m", "deposit-3m", "deposit-6m",
+                    "term_deposit"},
+    "deposit-flex": {"deposit-flex", "savings", "savings-flex",
+                     "savings_account"},
+    "credit_card": {"credit_card", "cashback_card", "cashback-card"},
+    "investments": {"investments", "investment", "brokerage",
+                    "investment_account"},
+    "consumer_credit": {"consumer_credit"},
+    "mortgage": {"mortgage"},
+    "premium_upgrade": {"premium_upgrade", "premium"},
+}
+
 
 def _client_state(c: dict[str, Any]) -> dict[str, Any]:
     """Сводим всё, что знаем о клиенте, в один словарь для правил."""
@@ -1098,6 +1114,15 @@ def _recommend_for_client(c: dict[str, Any]) -> list[dict[str, Any]]:
             "score": 0.4,
             "available_cashback_rub": s["cashback"],
         })
+
+    # Не предлагаем то, чем клиент уже владеет: убираем рекомендацию, если
+    # любой из её «эквивалентных» кодов есть в products клиента. (cashback_redeem
+    # — это действие с уже накопленным кешбэком, а не продукт, поэтому остаётся.)
+    products = s["products"]
+    recs = [
+        r for r in recs
+        if not (_RECO_HELD_EQUIVALENTS.get(r["product"], {r["product"]}) & products)
+    ]
 
     recs.sort(key=lambda r: r["score"], reverse=True)
     return recs

@@ -181,8 +181,12 @@ ts, tx_id, commission_tx_id}`. Сделка создаёт транзакцию
 [{product, title, reason, score, ...}]}`. Коды продуктов в рекомендациях:
 `deposit-12m`, `deposit-flex`, `credit_card`, `investments`,
 `consumer_credit`, `mortgage`, `premium_upgrade`, `cashback_redeem`.
-`404`, если клиента нет. cib/retail могут показать это клиенту и сразу
-провести через нужную ручку (вклад, заявку, карту).
+Движок не предлагает то, чем клиент уже владеет: если продукт записан в
+`products` (через `POST /clients/{id}/products`) — соответствующая
+рекомендация исключается (учитываются разные написания кода: `deposit` ↔
+`deposit-12m`, `cashback_card` ↔ `credit_card` и т.п.). `404`, если клиента
+нет. cib/retail могут показать это клиенту и сразу провести через нужную
+ручку (вклад, заявку, карту).
 
 ### GET /recommendations/summary
 Сводка по всему банку: для каждого продукта — скольким клиентам его стоит
