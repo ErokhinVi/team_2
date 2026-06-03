@@ -1652,8 +1652,11 @@ async def analytics_overview() -> dict:
             aum += int(_instruments.get(h["symbol"], {}).get("price_rub", 0)) \
                 * int(h["qty"])
     investors = sum(1 for h in _holdings_by_client.values() if h)
+    today = datetime.now().date().isoformat()
+    new_accounts_today = sum(1 for c in _clients if c.get("joined_at") == today)
     return {
         "clients_total": total,
+        "new_accounts_today": new_accounts_today,
         "by_segment": dict(sorted(by_segment.items(),
                                   key=lambda kv: kv[1], reverse=True)),
         "total_balance_rub": total_balance,
@@ -1768,7 +1771,7 @@ async function load(){
     document.getElementById('meta').textContent =
       ov.clients_total + ' customers · live data';
     document.getElementById('tiles').innerHTML =
-      tile('Customers', fmt(ov.clients_total), ov.investors+' investing') +
+      tile('Customers', fmt(ov.clients_total), '+'+fmt(ov.new_accounts_today)+' opened today · '+ov.investors+' investing') +
       tile('Money on accounts', rub(ov.total_balance_rub), 'avg '+rub(ov.avg_balance_rub)) +
       tile('Held in deposits', rub(ov.deposits_held_rub), ov.deposits_active+' active') +
       tile('Assets under mgmt', rub(ov.assets_under_management_rub), ov.investors+' investors') +
