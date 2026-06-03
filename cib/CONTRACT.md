@@ -53,6 +53,25 @@ Returns:
 `approved` is `true` or `false`. `reasons` lists why a decision was declined (empty on approval).
 HTTP 404 if client or product is not found. HTTP 400 if product is not a credit product.
 
+### GET /clients/{client_id}/next-best-offers
+
+Turns backend's analytical recommendations (`GET /clients/{id}/recommendations`) into ready-to-act offers. For each suggestion, attaches cib's real product terms and the exact call the app should make. Param `limit` (default 5).
+
+Returns `{client_id, name, segment, total, offers: [...]}`. Each offer is backend's recommendation (`product, title, reason, score, ...`) plus a `cib` block:
+
+```json
+{
+  "product": "deposit-12m", "title": "...", "reason": "idle cash earning nothing", "score": 0.82,
+  "cib": {
+    "available": true, "product_id": "deposit-12m", "name": "Депозит 12 месяцев", "kind": "deposit",
+    "terms": { "rate_pct": 17.0, "term_months": 12 },
+    "action": { "method": "POST", "path": "/deposit/open" }
+  }
+}
+```
+
+`cib.available` is false for codes cib can't fulfil yet (`mortgage`) or that belong to backend (`premium_upgrade`, `cashback_redeem` → `handled_by: "backend"`), with a `note` explaining. The app shows the offer and routes the customer to `cib.action`.
+
 ### POST /investment/suitability
 
 Checks whether an investment product matches a customer's risk profile (regulatory suitability). Request body: `{ "client_id": "<string>", "product_id": "<string>", "amount_rub": <number, optional> }`

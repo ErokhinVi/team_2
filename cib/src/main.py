@@ -96,6 +96,23 @@ RISK_LEVEL_NAMES = {
 # Minimum commission the bank charges on any trade, regardless of size.
 MIN_COMMISSION_RUB = 50.0
 
+# Routes backend's next-best-offer product codes to the matching cib product
+# and the call the app should make to act on the offer. Codes cib can't fulfil
+# yet (mortgage) or that belong to backend (premium_upgrade, cashback_redeem)
+# are passed through with a marker so the app still knows how to handle them.
+OFFER_ROUTING: dict[str, dict] = {
+    "deposit-12m":     {"cib_product": "deposit-12m",     "action": ("POST", "/deposit/open")},
+    "deposit-flex":    {"cib_product": "deposit-flex",    "action": ("POST", "/deposit/open")},
+    "credit_card":     {"cib_product": "card-credit",     "action": ("POST", "/card/credit-limit")},
+    "consumer_credit": {"cib_product": "credit-consumer", "action": ("POST", "/credit/decide")},
+    "investments":     {"cib_product": None,              "action": ("POST", "/investment/recommend")},
+    "mortgage":        {"cib_product": None, "action": None, "note": "no mortgage product in cib catalogue yet"},
+    "premium_upgrade": {"cib_product": None, "action": None, "handled_by": "backend",
+                        "note": "segment upgrade — handled by backend/retail"},
+    "cashback_redeem": {"cib_product": None, "action": ("POST", "/api/cashback/redeem"),
+                        "handled_by": "backend"},
+}
+
 
 def investor_profile(customer: dict) -> dict:
     """Derive an investment suitability profile from a customer's circumstances.
@@ -505,6 +522,70 @@ async def _fetch_customer(client_id: str) -> dict:
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail="Backend unavailable")
     return resp.json()
+
+
+def _product_terms(p: dict) -> dict:
+    """Customer-facing terms of a product, for showing inside an offer."""
+    keys = ("rate_pct", "term_months", "grace_period_days", "expected_return_pct",
+            "risk_level", "commission_pct", "cashback_categories", "early_withdrawal",
+            "min_investment_rub")
+    return {k: p[k] for k in keys if k in p}
+
+
+@app.get("/clients/{client_id}/next-best-offers")
+async def next_best_offers(client_id: str, limit: int = 5) -> dict:
+    """Turn backend's analytical recommendations into ready-to-act offers:
+    each suggestion is enriched with cib's real product terms and the exact
+    call the app should make to act on it."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                f"{BACKEND_URL}/clients/{client_id}/recommendations",
+                params={"limit": limit},
+            )
+    except httpx.HTTPError:
+        raise HTTPException(status_code=502, detail="Backend recommendations unavailable")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Backend recommendations unavailable")
+    data = resp.json()
+
+    offers = []
+    for rec in data.get("recommendations", []):
+        code = rec.get("product")
+        routing = OFFER_ROUTING.get(code)
+        cib: dict = {"available": False}
+        if routing is None:
+            cib["note"] = "unknown product code"
+        else:
+            cib_product = routing.get("cib_product")
+            if cib_product:
+                prod = next((p for p in PRODUCTS if p["id"] == cib_product), None)
+                if prod:
+                    cib.update({
+                        "available": True,
+                        "product_id": cib_product,
+                        "name": prod["name"],
+                        "kind": prod["kind"],
+                        "terms": _product_terms(prod),
+                    })
+            action = routing.get("action")
+            if action:
+                cib["action"] = {"method": action[0], "path": action[1]}
+            if routing.get("handled_by"):
+                cib["handled_by"] = routing["handled_by"]
+            if routing.get("note"):
+                cib["note"] = routing["note"]
+        offers.append({**rec, "cib": cib})
+
+    return {
+        "client_id": client_id,
+        "name": data.get("name"),
+        "segment": data.get("segment"),
+        "total": len(offers),
+        "offers": offers,
+    }
 
 
 async def _record_product(client_id: str, product: str, details: dict | None = None) -> bool:
