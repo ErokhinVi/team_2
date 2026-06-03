@@ -80,9 +80,9 @@ Returns the list of investment products suitable for a customer, sorted by expec
 
 ### GET /securities
 
-Tradable securities with their trading terms. CIB is the source of truth for the `ticker`, `asset_type`, `lot_size`, `commission_pct` (bank fee on trade value) and `min_order_rub`. **Backend should execute trades under these tickers.** Returns `{total, items: [{id, ticker, asset_type, name, risk_level, expected_return_pct, lot_size, commission_pct, min_order_rub}]}`.
+Tradable securities with their trading terms. CIB owns the trading **terms** (`lot_size`, `commission_pct`, `min_order_rub`, suitability); the `ticker` matches backend's live `GET /instruments` catalogue, since backend executes orders by that exact code. Returns `{total, items: [{id, ticker, asset_type, name, risk_level, expected_return_pct, lot_size, commission_pct, min_order_rub, alt_tickers?}]}`.
 
-Tickers: `inv-ofz`→`SU26240` (bond), `inv-corp-bond`→`RUCORP` (bond_fund), `inv-etf-index`→`TMOS` (etf), `inv-equity-fund`→`SBMX` (equity_fund), `inv-bluechip`→`SBER` (stock), `inv-growth`→`YDEX` (stock).
+Tickers (aligned to backend's catalogue): `inv-ofz`→`OFZ26`, `inv-corp-bond`→`FXCB`, `inv-etf-index`→`FXIM`, `inv-equity-fund`→`FXEQ`, `inv-bluechip`→`SBER` (also `GAZP`, `LKOH`), `inv-growth`→`YNDX`.
 
 ### POST /investment/order-check
 
@@ -92,7 +92,7 @@ Enforces CIB's trading rules: valid side, positive whole lots (multiple of `lot_
 
 ```json
 {
-  "client_id": "c-01004", "product_id": "inv-etf-index", "ticker": "TMOS",
+  "client_id": "c-01004", "product_id": "inv-etf-index", "ticker": "FXIM",
   "asset_type": "etf", "side": "buy", "qty": 100, "price_rub": 95.0,
   "gross_rub": 9500.0, "commission_pct": 0.2, "commission_rub": 50.0,
   "total_cost_rub": 9550.0, "net_proceeds_rub": null,
@@ -113,7 +113,7 @@ Runs the suitability check; if suitable, maps the product to a backend instrumen
   "client_id": "c-01000",
   "product_id": "inv-etf-index",
   "suitable": true,
-  "order": { "side": "buy", "symbol": "TMOS", "qty": 100, "price_rub": 95.0, "est_cost_rub": 9500.0 },
+  "order": { "side": "buy", "symbol": "FXIM", "qty": 100, "price_rub": 95.0, "est_cost_rub": 9500.0 },
   "executable": true,
   "execute_via": "POST <backend>/clients/{client_id}/orders",
   "note": null

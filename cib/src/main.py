@@ -72,15 +72,16 @@ PRODUCTS = [
     {"id": "deposit-flex","kind": "deposit", "name": "Накопительный счёт","rate_pct": 9.5,  "term_months": None,"early_withdrawal": True},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
     # Investment / tradable securities. risk_level 1 (lowest) .. 5 (highest).
-    # cib owns the trading terms: `ticker` (canonical tradable code), `asset_type`,
-    # `lot_size` (units per lot), `commission_pct` (bank fee on trade value),
-    # `min_order_rub`. Backend executes against the `ticker` cib defines here.
-    {"id": "inv-ofz",        "kind": "investment", "subtype": "bond",  "ticker": "SU26240", "asset_type": "bond",        "name": "Гособлигации (ОФЗ)",            "risk_level": 1, "expected_return_pct": 13.0, "lot_size": 1,  "commission_pct": 0.10, "min_order_rub": 10_000, "min_investment_rub": 10_000},
-    {"id": "inv-corp-bond",  "kind": "investment", "subtype": "bond",  "ticker": "RUCORP",  "asset_type": "bond_fund",   "name": "Фонд корпоративных облигаций",  "risk_level": 2, "expected_return_pct": 16.0, "lot_size": 1,  "commission_pct": 0.15, "min_order_rub": 10_000, "min_investment_rub": 10_000},
-    {"id": "inv-etf-index",  "kind": "investment", "subtype": "etf",   "ticker": "TMOS",    "asset_type": "etf",         "name": "ETF на индекс Мосбиржи",        "risk_level": 3, "expected_return_pct": 18.0, "lot_size": 1,  "commission_pct": 0.20, "min_order_rub": 5_000,  "min_investment_rub": 5_000},
-    {"id": "inv-equity-fund","kind": "investment", "subtype": "fund",  "ticker": "SBMX",    "asset_type": "equity_fund", "name": "Фонд акций",                    "risk_level": 3, "expected_return_pct": 19.0, "lot_size": 1,  "commission_pct": 0.20, "min_order_rub": 5_000,  "min_investment_rub": 5_000},
-    {"id": "inv-bluechip",   "kind": "investment", "subtype": "stock", "ticker": "SBER",    "asset_type": "stock",       "name": "Голубые фишки (акции)",         "risk_level": 4, "expected_return_pct": 22.0, "lot_size": 10, "commission_pct": 0.30, "min_order_rub": 30_000, "min_investment_rub": 30_000},
-    {"id": "inv-growth",     "kind": "investment", "subtype": "stock", "ticker": "YDEX",    "asset_type": "stock",       "name": "Акции роста",                   "risk_level": 5, "expected_return_pct": 28.0, "lot_size": 1,  "commission_pct": 0.30, "min_order_rub": 50_000, "min_investment_rub": 50_000},
+    # cib owns the trading TERMS (lot_size, commission_pct, min_order_rub,
+    # suitability); `ticker` matches backend's live catalogue (GET /instruments),
+    # since backend executes orders by that exact code. `alt_tickers` lists other
+    # acceptable codes for the same product (e.g. blue-chip basket).
+    {"id": "inv-ofz",        "kind": "investment", "subtype": "bond",  "ticker": "OFZ26", "asset_type": "bond",        "name": "Гособлигации (ОФЗ)",            "risk_level": 1, "expected_return_pct": 13.0, "lot_size": 1,  "commission_pct": 0.10, "min_order_rub": 10_000, "min_investment_rub": 10_000},
+    {"id": "inv-corp-bond",  "kind": "investment", "subtype": "bond",  "ticker": "FXCB",  "asset_type": "bond_fund",   "name": "Фонд корпоративных облигаций",  "risk_level": 2, "expected_return_pct": 16.0, "lot_size": 1,  "commission_pct": 0.15, "min_order_rub": 10_000, "min_investment_rub": 10_000},
+    {"id": "inv-etf-index",  "kind": "investment", "subtype": "etf",   "ticker": "FXIM",  "asset_type": "etf",         "name": "ETF на индекс Мосбиржи",        "risk_level": 3, "expected_return_pct": 18.0, "lot_size": 1,  "commission_pct": 0.20, "min_order_rub": 5_000,  "min_investment_rub": 5_000},
+    {"id": "inv-equity-fund","kind": "investment", "subtype": "fund",  "ticker": "FXEQ",  "asset_type": "equity_fund", "name": "Фонд акций",                    "risk_level": 3, "expected_return_pct": 19.0, "lot_size": 1,  "commission_pct": 0.20, "min_order_rub": 5_000,  "min_investment_rub": 5_000},
+    {"id": "inv-bluechip",   "kind": "investment", "subtype": "stock", "ticker": "SBER",  "asset_type": "stock",       "name": "Голубые фишки (акции)",         "risk_level": 4, "expected_return_pct": 22.0, "lot_size": 1,  "commission_pct": 0.30, "min_order_rub": 30_000, "min_investment_rub": 30_000, "alt_tickers": ["GAZP", "LKOH"]},
+    {"id": "inv-growth",     "kind": "investment", "subtype": "stock", "ticker": "YNDX",  "asset_type": "stock",       "name": "Акции роста",                   "risk_level": 5, "expected_return_pct": 28.0, "lot_size": 1,  "commission_pct": 0.30, "min_order_rub": 50_000, "min_investment_rub": 50_000},
 ]
 
 # Human-readable investor risk profile names by max acceptable risk level.
