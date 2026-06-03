@@ -575,6 +575,9 @@
         your_deposits:    "Ваши вклады",
         no_deposits:      "У вас пока нет вкладов",
         months:           "мес.",
+        matures_at:       "Дата погашения",
+        flexible:         "Снятие в любое время",
+        deposit_maturity: "Погашение",
         loading_cc:       "Загрузка кредитной карты...",
         cc_error:         "Не удалось загрузить данные кредитной карты",
         credit_card:      "КРЕДИТНАЯ",
@@ -592,6 +595,8 @@
         cc_not_eligible:  "Кредитная карта пока недоступна для данного клиента.",
         cc_fill_amount:   "Укажите сумму платежа",
         cc_used_of:       "использовано из",
+        cc_secured:       "ЗАЩИЩЁННАЯ",
+        cc_secured_note:  "Предложена защищённая кредитная карта",
       },
       en: {
         balance_label:    "account balance",
@@ -665,6 +670,9 @@
         your_deposits:    "Your deposits",
         no_deposits:      "You have no deposits yet",
         months:           "mo.",
+        matures_at:       "Maturity date",
+        flexible:         "Withdraw anytime",
+        deposit_maturity: "Maturity",
         loading_cc:       "Loading credit card...",
         cc_error:         "Could not load credit card data",
         credit_card:      "CREDIT",
@@ -682,6 +690,8 @@
         cc_not_eligible:  "Credit card is not available for this customer at the moment.",
         cc_fill_amount:   "Please enter a payment amount",
         cc_used_of:       "used of",
+        cc_secured:       "SECURED",
+        cc_secured_note:  "You have been offered a secured credit card",
       }
     };
 
@@ -949,6 +959,16 @@
         return;
       }
 
+      const isSecured = d.is_secured || d.product_id === "card-credit-secured";
+      const cardLabel = isSecured ? t("cc_secured") : t("credit_card");
+      const cardColor = isSecured
+        ? "background: linear-gradient(135deg, #3a2a1a 0%, #6a4a2a 50%, #3a2a1a 100%)"
+        : "";
+
+      const securedNote = isSecured && d.explanation
+        ? `<div class="alert info" style="margin-bottom:14px">${t("cc_secured_note")}: ${d.explanation}</div>`
+        : "";
+
       const usedPct = d.credit_limit_rub > 0
         ? Math.round((d.balance_owed_rub / d.credit_limit_rub) * 100) : 0;
       const barClass = usedPct < 30 ? "low" : usedPct > 70 ? "high" : "";
@@ -966,12 +986,13 @@
       ` : "";
 
       ccContainer.innerHTML = `
-        <div class="credit-card-visual">
+        ${securedNote}
+        <div class="credit-card-visual" ${cardColor ? `style="${cardColor}"` : ""}>
           <div class="card-bank">Raiffeisen</div>
           <div class="card-number">${d.card_number_masked}</div>
           <div class="card-bottom">
             <div class="card-holder">${d.customer_name}</div>
-            <div class="card-type">${t("credit_card")}</div>
+            <div class="card-type">${cardLabel}</div>
           </div>
         </div>
 
@@ -1112,7 +1133,7 @@
         productsHtml = `<div class="empty" style="padding:20px 0">${t("no_deposit_products")}</div>`;
       }
 
-      // Open deposit form
+      // Open deposit form (no term selector — term comes from the product)
       const formHtml = products.length ? `
         <div id="deposit-open-section" style="display:${selectedDepositId ? 'block' : 'none'}; margin-top:18px">
           <div class="section-title">${t("open_deposit")}</div>
@@ -1120,15 +1141,6 @@
             <div class="form-row">
               <label>${t("deposit_amount")}</label>
               <input name="dep_amount" type="number" min="1000" step="1000" placeholder="100 000" />
-            </div>
-            <div class="form-row">
-              <label>${t("deposit_term")}</label>
-              <select name="dep_term">
-                <option value="3">3 ${t("months")}</option>
-                <option value="6">6 ${t("months")}</option>
-                <option value="12" selected>12 ${t("months")}</option>
-                <option value="24">24 ${t("months")}</option>
-              </select>
             </div>
             <button class="btn primary" type="submit">${t("deposit_open_btn")}</button>
           </form>
@@ -1158,7 +1170,6 @@
           depResult.innerHTML = "";
           const fd = new FormData(ev.target);
           const amount = +fd.get("dep_amount");
-          const term = +fd.get("dep_term");
           if (!amount || amount <= 0) {
             depResult.innerHTML = `<div class="alert error">${t("deposit_fill")}</div>`;
             return;
@@ -1171,7 +1182,6 @@
                 client_id: d.client_id,
                 product_id: selectedDepositId,
                 amount_rub: amount,
-                term_months: term,
               }),
             });
             const res = await r.json();
@@ -1179,9 +1189,16 @@
               const estIncome = res.estimated_interest_rub
                 ? `${t("estimated_income")}: +${fmt.format(res.estimated_interest_rub)} ₽`
                 : "";
+              const maturity = res.matures_at
+                ? `<br/>${t("deposit_maturity")}: ${res.matures_at}`
+                : (res.early_withdrawal ? `<br/>${t("flexible")}` : "");
+              const termInfo = res.term_months
+                ? ` · ${res.term_months} ${t("months")}`
+                : "";
+              const prodName = res.product_name ? `${res.product_name} — ` : "";
               depResult.innerHTML = `<div class="alert ok">
-                ${t("deposit_success")} ${fmt.format(amount)} ₽ · ${res.rate_pct}% · ${term} ${t("months")}<br/>
-                ${estIncome}
+                ${t("deposit_success")} ${prodName}${fmt.format(res.amount_rub || amount)} ₽ · ${res.rate_pct}%${termInfo}<br/>
+                ${estIncome}${maturity}
               </div>`;
               depForm.reset();
               setTimeout(() => loadSavings(d.client_id), 500);

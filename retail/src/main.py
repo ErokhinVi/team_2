@@ -282,6 +282,7 @@ async def credit_card_info(client_id: str) -> dict:
     segment = customer.get("segment", "mass")
     explanation = ""
     reasons = []
+    actual_product = "card-credit"
     source = "retail-heuristic"
 
     try:
@@ -298,9 +299,12 @@ async def credit_card_info(client_id: str) -> dict:
             grace_days = cib.get("grace_period_days", 55)
             segment = cib.get("segment", segment)
             reasons = cib.get("reasons", [])
-            explanation = "; ".join(reasons) if reasons else (
+            # CIB may offer a secured card for borderline customers
+            actual_product = cib.get("product_id", "card-credit")
+            note = cib.get("note", "")
+            explanation = note or ("; ".join(reasons) if reasons else (
                 "Approved" if eligible else "Declined"
-            )
+            ))
             source = "cib"
     except httpx.HTTPError:
         # CIB unreachable — local heuristic
@@ -332,6 +336,9 @@ async def credit_card_info(client_id: str) -> dict:
 
     card_suffix = str(abs(hash(client_id + "cc")))[-4:]
 
+    product_id = actual_product if source == "cib" else "card-credit"
+    is_secured = product_id == "card-credit-secured"
+
     return {
         "client_id": client_id,
         "customer_name": customer.get("name", ""),
@@ -339,6 +346,8 @@ async def credit_card_info(client_id: str) -> dict:
         "eligible": eligible,
         "explanation": explanation,
         "reasons": reasons,
+        "product_id": product_id,
+        "is_secured": is_secured,
         "card_number_masked": f"**** **** **** {card_suffix}",
         "credit_limit_rub": credit_limit,
         "balance_owed_rub": balance_owed,
@@ -439,8 +448,10 @@ async def deposits_info(client_id: str) -> dict:
 async def deposit_open(payload: dict) -> dict:
     """Open a new deposit / savings account.
 
-    Tries backend POST /deposits. If not available, returns a simulated
-    confirmation so the UI flow is complete.
+    1. Tries CIB POST /deposit/open (returns confirmation with rate,
+       maturity date, projected interest).
+    2. Falls back to backend POST /deposits.
+    3. Falls back to simulated confirmation.
     """
     client_id = payload.get("client_id")
     product_id = payload.get("product_id")
@@ -453,7 +464,39 @@ async def deposit_open(payload: dict) -> dict:
             detail="client_id, product_id and positive amount_rub required",
         )
 
-    # Try real endpoint on backend
+    # Try CIB deposit/open endpoint (has rate, maturity, projected interest)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{CIB_URL}/deposit/open",
+                json={
+                    "client_id": client_id,
+                    "product_id": product_id,
+                    "amount_rub": amount,
+                },
+            )
+        if r.status_code == 200:
+            cib = r.json()
+            return {
+                "status": "ok",
+                "opened": cib.get("opened", True),
+                "client_id": cib.get("client_id", client_id),
+                "product_id": cib.get("product_id", product_id),
+                "product_name": cib.get("product_name", ""),
+                "amount_rub": cib.get("amount_rub", amount),
+                "rate_pct": cib.get("rate_pct", 0),
+                "term_months": cib.get("term_months"),
+                "early_withdrawal": cib.get("early_withdrawal", False),
+                "opened_at": cib.get("opened_at", ""),
+                "matures_at": cib.get("matures_at"),
+                "estimated_interest_rub": cib.get("projected_interest_rub", 0),
+                "customer_name": cib.get("customer_name", ""),
+                "source": "cib",
+            }
+    except httpx.HTTPError:
+        pass
+
+    # Try backend
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(f"{BACKEND_URL}/deposits", json=payload)
@@ -463,7 +506,6 @@ async def deposit_open(payload: dict) -> dict:
         pass
 
     # Fallback: simulated deposit opening
-    # Get rate from CIB product catalogue
     rate_pct = 14.0
     try:
         products = await _cib_get("/products")
