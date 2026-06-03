@@ -210,6 +210,14 @@ CONCENTRATION_CAP_BY_RISK = {1: 0.90, 2: 0.90, 3: 0.70, 4: 0.50, 5: 0.50}
 # holds, the better deposit rate and cashback they earn. No credit risk involved.
 DEPOSIT_MAX_BONUS_PCT = 1.5      # cap on total deposit rate uplift
 
+# Minimum opening amount per deposit product.
+DEPOSIT_MIN_AMOUNTS = {
+    "deposit-3m": 10_000,
+    "deposit-6m": 10_000,
+    "deposit-12m": 30_000,
+    "deposit-flex": 1_000,
+}
+
 
 def _loyalty_tier(customer: dict) -> dict:
     """Relationship tier from the number of products the customer holds, with the
@@ -817,13 +825,7 @@ async def deposit_open(req: DepositOpenRequest) -> dict:
     customer = resp.json()
 
     # Minimum amounts by product
-    min_amounts = {
-        "deposit-3m": 10_000,
-        "deposit-6m": 10_000,
-        "deposit-12m": 30_000,
-        "deposit-flex": 1_000,
-    }
-    min_amount = min_amounts.get(req.product_id, 10_000)
+    min_amount = DEPOSIT_MIN_AMOUNTS.get(req.product_id, 10_000)
     if req.amount_rub < min_amount:
         raise HTTPException(
             status_code=400,
@@ -1591,6 +1593,58 @@ async def referral_validate(req: ReferralValidateRequest) -> dict:
             "bonus_by_segment_rub": REFERRAL_BONUS_BY_SEGMENT,
             "referee_bonus_rub": REFERRAL_REFEREE_BONUS,
         },
+    }
+
+
+@app.get("/savings/calculator")
+async def savings_calculator(amount_rub: float, client_id: str | None = None) -> dict:
+    """'Put X here, earn Y' across every deposit product — for the app to show a
+    savings calculator. Includes the amount and loyalty rate bonuses. No money
+    moves; if client_id is given, the customer's loyalty tier is applied."""
+    if amount_rub <= 0:
+        raise HTTPException(status_code=400, detail="amount_rub must be positive")
+
+    loyalty_bonus = 0.0
+    loyalty_tier = "standard"
+    customer_name = None
+    if client_id:
+        customer = await _fetch_customer(client_id)
+        lt = _loyalty_tier(customer)
+        loyalty_bonus = lt["deposit_rate_bonus_pct"]
+        loyalty_tier = lt["tier"]
+        customer_name = customer.get("name")
+
+    amount_bonus = _deposit_amount_bonus(amount_rub)
+    bonus = min(amount_bonus + loyalty_bonus, DEPOSIT_MAX_BONUS_PCT)
+
+    options = []
+    for p in PRODUCTS:
+        if p["kind"] != "deposit":
+            continue
+        eff = round(p["rate_pct"] + bonus, 2)
+        term = p.get("term_months")
+        months = term or 12  # flexible account projected over a year
+        interest = round(amount_rub * eff / 100 * months / 12)
+        options.append({
+            "product_id": p["id"],
+            "name": p["name"],
+            "term_months": term,
+            "effective_rate_pct": eff,
+            "base_rate_pct": p["rate_pct"],
+            "projected_interest_rub": interest,
+            "maturity_value_rub": round(amount_rub + interest),
+            "annualised_return_pct": eff,
+            "meets_minimum": amount_rub >= DEPOSIT_MIN_AMOUNTS.get(p["id"], 10_000),
+        })
+    options.sort(key=lambda o: o["projected_interest_rub"], reverse=True)
+
+    return {
+        "amount_rub": amount_rub,
+        "client_id": client_id,
+        "customer_name": customer_name,
+        "loyalty_tier": loyalty_tier,
+        "rate_bonus_applied_pct": bonus,
+        "options": options,
     }
 
 

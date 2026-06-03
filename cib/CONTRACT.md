@@ -275,6 +275,10 @@ Currently supports `"card-debit-cashback"`. Returns personalised cashback rates 
 
 Rates by segment — mass: 2/1.5/0.5%, mass_affluent: 3/2/1%, premium: 5/3/1.5%, private: 7/5/2%. Multi-product customers get a loyalty **cashback uplift** (silver +0.5%, gold +0.75%, platinum +1.0%, capped at 7%); the response carries `loyalty_tier` and `cashback_uplift_pct`.
 
+### GET /savings/calculator
+
+"Put X here, earn Y" across every deposit product — for a savings-calculator screen. Params: `amount_rub` (required), `client_id` (optional — applies the customer's loyalty bonus). No money moves. Returns `{amount_rub, client_id, customer_name, loyalty_tier, rate_bonus_applied_pct, options: [...]}` sorted by projected interest. Each option: `{product_id, name, term_months, effective_rate_pct, base_rate_pct, projected_interest_rub, maturity_value_rub, annualised_return_pct, meets_minimum}`.
+
 ### GET /clients/{client_id}/loyalty
 
 A customer's relationship tier and perks, for the app to display. Tier from products held: standard (0–1), silver (2), gold (3), platinum (4+). Returns `{client_id, customer_name, tier, products_held, deposit_rate_bonus_pct, cashback_uplift_pct, perks, next_tier_hint}`.
