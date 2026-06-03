@@ -163,12 +163,12 @@ DEFAULT_CASHBACK_RATES = {
 
 @app.get("/api/card-info/{client_id}")
 async def card_info(client_id: str) -> dict:
-    """Build debit card summary with cashback for a customer.
+    """Build debit card summary with personalised cashback for a customer.
 
-    Fetches the customer profile and recent transactions from backend,
-    tries to get cashback rates from CIB (GET /cashback-rates), falls
-    back to defaults if CIB doesn't have that endpoint yet.
-    Returns the card visual data + cashback breakdown.
+    1. Activates the card via CIB POST /card/activate (product: card-debit-cashback)
+       to get personalised cashback rates based on the customer's segment.
+    2. Fetches transactions from backend and calculates cashback per transaction.
+    Falls back to default rates if CIB is not reachable.
     """
     # Get customer profile
     customer = await _backend_get(f"/clients/{client_id}")
@@ -177,17 +177,38 @@ async def card_info(client_id: str) -> dict:
     tx_data = await _backend_get(f"/transactions/{client_id}", {"limit": "50"})
     txs = tx_data.get("items", [])
 
-    # Try to get cashback rates from CIB
-    rates = DEFAULT_CASHBACK_RATES
+    # Activate card via CIB to get personalised cashback rates
+    rates = dict(DEFAULT_CASHBACK_RATES)
     rates_source = "default"
+    cashback_rates_pct = {}
+    segment = customer.get("segment", "mass")
+    activation_message = ""
+
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            r = await client.get(f"{CIB_URL}/cashback-rates")
+            r = await client.post(
+                f"{CIB_URL}/card/activate",
+                json={"client_id": client_id, "product_id": "card-debit-cashback"},
+            )
         if r.status_code == 200:
-            cib_rates = r.json()
-            if isinstance(cib_rates, dict) and cib_rates.get("rates"):
-                rates = cib_rates["rates"]
-                rates_source = "cib"
+            cib = r.json()
+            cashback_rates_pct = cib.get("cashback_rates_pct", {})
+            activation_message = cib.get("message", "")
+            segment = cib.get("segment", segment)
+            rates_source = "cib"
+            # Map CIB category rates to transaction types
+            # CIB gives: groceries, transport, other
+            groceries_rate = cashback_rates_pct.get("groceries", 1.0) / 100
+            transport_rate = cashback_rates_pct.get("transport", 0.5) / 100
+            other_rate = cashback_rates_pct.get("other", 0.5) / 100
+            rates = {
+                "card_purchase":   groceries_rate,   # most card purchases = groceries
+                "utility_payment": other_rate,
+                "atm_withdraw":    0.0,
+                "transfer_out":    0.0,
+                "transfer_in":     0.0,
+                "salary":          0.0,
+            }
     except httpx.HTTPError:
         pass
 
@@ -211,16 +232,18 @@ async def card_info(client_id: str) -> dict:
                 "counterparty": tx.get("counterparty", ""),
             })
 
-    # Card number — masked, derived from client ID for consistency
     card_suffix = str(abs(hash(client_id)))[-4:]
 
     return {
         "client_id": client_id,
         "customer_name": customer.get("name", ""),
+        "segment": segment,
         "card_number_masked": f"**** **** **** {card_suffix}",
         "balance_rub": customer.get("balance_rub", 0),
         "total_cashback_rub": round(total_cashback, 2),
         "cashback_transactions": cashback_txs,
+        "cashback_rates_pct": cashback_rates_pct,
+        "activation_message": activation_message,
         "rates": rates,
         "rates_source": rates_source,
     }

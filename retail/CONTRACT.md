@@ -59,7 +59,7 @@ amount_rub, max_amount_rub, reason, source}`.
 ## Кого я зову у соседей
 
 - backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available)
-- cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`), `GET /cashback-rates` (when available; expected: `{rates: {card_purchase: 0.01, ...}}`)
+- cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`), `POST /card/activate` (payload: `{client_id, product_id: "card-debit-cashback"}`, returns personalised cashback rates by segment)
 
 ## Где работает блок локально
 

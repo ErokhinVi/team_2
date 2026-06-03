@@ -488,6 +488,10 @@
         cashback_rate:    "Базовая ставка",
         cashback_history: "Кешбэк по операциям",
         no_cashback:      "Нет операций с кешбэком",
+        cb_groceries:     "Продукты",
+        cb_transport:     "Транспорт",
+        cb_other:         "Прочее",
+        your_segment:     "Ваш сегмент",
         loading_cc:       "Загрузка кредитной карты...",
         cc_error:         "Не удалось загрузить данные кредитной карты",
         credit_card:      "КРЕДИТНАЯ",
@@ -556,6 +560,10 @@
         cashback_rate:    "Base rate",
         cashback_history: "Cashback by transaction",
         no_cashback:      "No cashback transactions",
+        cb_groceries:     "Groceries",
+        cb_transport:     "Transport",
+        cb_other:         "Other",
+        your_segment:     "Your segment",
         loading_cc:       "Loading credit card...",
         cc_error:         "Could not load credit card data",
         credit_card:      "CREDIT",
@@ -758,6 +766,40 @@
       } else {
         cbTxsHtml = `<div class="empty">${t("no_cashback")}</div>`;
       }
+      // Build personalised rates display
+      const cibRates = data.cashback_rates_pct || {};
+      const hasCibRates = Object.keys(cibRates).length > 0;
+      let ratesHtml = "";
+      if (hasCibRates) {
+        ratesHtml = `
+          <div class="cashback-summary">
+            <div class="cashback-box">
+              <div class="cb-value">${cibRates.groceries || 0}%</div>
+              <div class="cb-label">${t("cb_groceries")}</div>
+            </div>
+            <div class="cashback-box">
+              <div class="cb-value">${cibRates.transport || 0}%</div>
+              <div class="cb-label">${t("cb_transport")}</div>
+            </div>
+            <div class="cashback-box">
+              <div class="cb-value">${cibRates.other || 0}%</div>
+              <div class="cb-label">${t("cb_other")}</div>
+            </div>
+          </div>`;
+      } else {
+        ratesHtml = `
+          <div class="cashback-summary">
+            <div class="cashback-box">
+              <div class="cb-value">1%</div>
+              <div class="cb-label">${t("cashback_rate")}</div>
+            </div>
+          </div>`;
+      }
+
+      const segmentLabel = data.segment
+        ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${t("your_segment")}: ${data.segment}</div>`
+        : "";
+
       cardContainer.innerHTML = `
         <div class="debit-card">
           <div class="card-bank">Raiffeisen</div>
@@ -767,16 +809,14 @@
             <div class="card-type">${t("debit_card")}</div>
           </div>
         </div>
+        ${segmentLabel}
         <div class="cashback-summary">
           <div class="cashback-box">
             <div class="cb-value">${fmt.format(data.total_cashback_rub)} ₽</div>
             <div class="cb-label">${t("cashback_earned")}</div>
           </div>
-          <div class="cashback-box">
-            <div class="cb-value">1%</div>
-            <div class="cb-label">${t("cashback_rate")}</div>
-          </div>
         </div>
+        ${ratesHtml}
         <div class="section-title">${t("cashback_history")}</div>
         <div class="tx-list">${cbTxsHtml}</div>`;
     }
