@@ -78,6 +78,28 @@ The investor profile is derived from age, income and balance (NOT credit risk sc
 
 Returns the list of investment products suitable for a customer, sorted by expected return. Request body: `{ "client_id": "<string>" }`. Returns `{client_id, customer_name, investor_profile, max_risk_level, total, items: [...]}`.
 
+### POST /investment/order-plan
+
+Bridges a CIB investment product to an executable backend order. Request body: `{ "client_id": "<string>", "product_id": "<string>", "amount_rub": <number> }`.
+
+Runs the suitability check; if suitable, maps the product to a backend instrument symbol, prices it against backend `GET /instruments`, and computes the quantity that fits within `amount_rub`. Returns:
+
+```json
+{
+  "client_id": "c-01000",
+  "product_id": "inv-etf-index",
+  "suitable": true,
+  "order": { "side": "buy", "symbol": "TMOS", "qty": 100, "price_rub": 95.0, "est_cost_rub": 9500.0 },
+  "executable": true,
+  "execute_via": "POST <backend>/clients/{client_id}/orders",
+  "note": null
+}
+```
+
+Retail posts the returned `order` to backend `POST /clients/{client_id}/orders`. If the product is unsuitable, `suitable: false` and `order: null`. If the symbol mapping isn't yet confirmed against backend's catalogue, `executable: false` with an explanatory `note` (no wrong order is produced).
+
+**Note:** the symbol map (CIB product → backend instrument) is provisional and must be confirmed against backend's live `GET /instruments` catalogue.
+
 ### POST /deposit/open
 
 Open a deposit for a customer. Request body: `{ "client_id": "<string>", "product_id": "<string>", "amount_rub": <number> }`

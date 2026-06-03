@@ -89,6 +89,20 @@ RISK_LEVEL_NAMES = {
     5: "aggressive",
 }
 
+# Bridge between CIB's risk-rated investment products and backend's tradeable
+# instrument symbols (GET /instruments). Symbols on the right are PROVISIONAL —
+# confirm each against backend's live catalogue and adjust. If a symbol is not
+# found in the catalogue, /investment/order-plan returns the plan without a qty
+# and flags it, rather than producing a wrong order.
+INVESTMENT_SYMBOL_MAP = {
+    "inv-ofz":         "OFZ",      # government bonds
+    "inv-corp-bond":   "RUCORP",   # corporate bond fund
+    "inv-etf-index":   "TMOS",     # Moscow Exchange index ETF
+    "inv-equity-fund": "EQMX",     # broad equity fund
+    "inv-bluechip":    "SBER",     # blue-chip representative
+    "inv-growth":      "YDEX",     # growth representative
+}
+
 
 def investor_profile(customer: dict) -> dict:
     """Derive an investment suitability profile from a customer's circumstances.
@@ -439,6 +453,46 @@ async def _fetch_customer(client_id: str) -> dict:
     return resp.json()
 
 
+async def _fetch_instruments() -> list[dict]:
+    """Backend's tradeable catalogue (GET /instruments). Empty list if unreachable."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{BACKEND_URL}/instruments")
+        if resp.status_code == 200:
+            return resp.json().get("items", [])
+    except httpx.HTTPError:
+        pass
+    return []
+
+
+def _suitability_check(product: dict, prof: dict, amount_rub: float | None) -> list[str]:
+    """Return a list of reasons the product is unsuitable. Empty list == suitable."""
+    reasons: list[str] = []
+
+    if product["risk_level"] > prof["max_risk_level"]:
+        reasons.append(
+            f"product risk level {product['risk_level']} exceeds the customer's "
+            f"suitable level {prof['max_risk_level']} ({prof['profile']} profile)"
+        )
+
+    if prof["balance_rub"] < product["min_investment_rub"]:
+        reasons.append(
+            f"balance below product minimum ({prof['balance_rub']} < {product['min_investment_rub']})"
+        )
+
+    if amount_rub is not None:
+        if amount_rub < product["min_investment_rub"]:
+            reasons.append(
+                f"amount below product minimum ({amount_rub} < {product['min_investment_rub']})"
+            )
+        # Concentration guard: don't let a customer put more than 50% of their
+        # balance into a single higher-risk (level >= 4) investment.
+        if product["risk_level"] >= 4 and amount_rub > prof["balance_rub"] * 0.5:
+            reasons.append("amount exceeds 50% of balance for a high-risk product (concentration limit)")
+
+    return reasons
+
+
 @app.post("/investment/suitability")
 async def investment_suitability(req: SuitabilityRequest) -> dict:
     product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
@@ -450,33 +504,8 @@ async def investment_suitability(req: SuitabilityRequest) -> dict:
     customer = await _fetch_customer(req.client_id)
     prof = investor_profile(customer)
 
-    reasons: list[str] = []
-    suitable = True
-
-    if product["risk_level"] > prof["max_risk_level"]:
-        suitable = False
-        reasons.append(
-            f"product risk level {product['risk_level']} exceeds the customer's "
-            f"suitable level {prof['max_risk_level']} ({prof['profile']} profile)"
-        )
-
-    if prof["balance_rub"] < product["min_investment_rub"]:
-        suitable = False
-        reasons.append(
-            f"balance below product minimum ({prof['balance_rub']} < {product['min_investment_rub']})"
-        )
-
-    if req.amount_rub is not None:
-        if req.amount_rub < product["min_investment_rub"]:
-            suitable = False
-            reasons.append(
-                f"amount below product minimum ({req.amount_rub} < {product['min_investment_rub']})"
-            )
-        # Concentration guard: don't let a customer put more than 50% of their
-        # balance into a single higher-risk (level >= 4) investment.
-        if product["risk_level"] >= 4 and req.amount_rub > prof["balance_rub"] * 0.5:
-            suitable = False
-            reasons.append("amount exceeds 50% of balance for a high-risk product (concentration limit)")
+    reasons = _suitability_check(product, prof, req.amount_rub)
+    suitable = not reasons
 
     # Suggest suitable alternatives if this product doesn't fit
     alternatives = [
@@ -526,6 +555,81 @@ async def investment_recommend(req: RecommendRequest) -> dict:
         "max_risk_level": prof["max_risk_level"],
         "total": len(recommended),
         "items": recommended,
+    }
+
+
+@app.post("/investment/order-plan")
+async def investment_order_plan(req: SuitabilityRequest) -> dict:
+    """Bridge a CIB investment product to an executable backend order.
+
+    Runs the suitability check, then maps the product to a tradeable symbol and
+    prices the order against backend's live catalogue, computing how many units
+    fit within the requested amount. Retail takes the returned `order` and posts
+    it to backend `POST /clients/{client_id}/orders`.
+    """
+    if req.amount_rub is None or req.amount_rub <= 0:
+        raise HTTPException(status_code=400, detail="amount_rub is required and must be > 0")
+
+    product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product["kind"] != "investment":
+        raise HTTPException(status_code=400, detail="Product is not an investment")
+
+    customer = await _fetch_customer(req.client_id)
+    prof = investor_profile(customer)
+
+    reasons = _suitability_check(product, prof, req.amount_rub)
+    if reasons:
+        return {
+            "client_id": req.client_id,
+            "product_id": req.product_id,
+            "suitable": False,
+            "reasons": reasons,
+            "order": None,
+            "customer_name": customer.get("name"),
+        }
+
+    symbol = INVESTMENT_SYMBOL_MAP.get(product["id"])
+    order: dict = {"side": "buy", "symbol": symbol}
+    note = None
+    executable = False
+
+    instruments = await _fetch_instruments()
+    if not instruments:
+        note = "backend catalogue unreachable — could not price the order"
+    else:
+        match = next((i for i in instruments if i.get("symbol") == symbol), None)
+        if match is None:
+            note = (
+                f"symbol '{symbol}' not found in backend catalogue — confirm the "
+                f"mapping for product '{product['id']}'"
+            )
+        else:
+            price = match["price_rub"]
+            qty = int(req.amount_rub // price)
+            if qty < 1:
+                note = f"amount {req.amount_rub} is below the price of one unit ({price})"
+            else:
+                order.update({
+                    "qty": qty,
+                    "price_rub": price,
+                    "est_cost_rub": round(qty * price, 2),
+                })
+                executable = True
+
+    return {
+        "client_id": req.client_id,
+        "product_id": req.product_id,
+        "product_name": product["name"],
+        "suitable": True,
+        "reasons": [],
+        "investor_profile": prof["profile"],
+        "order": order,
+        "executable": executable,
+        "execute_via": f"POST {BACKEND_URL}/clients/{req.client_id}/orders",
+        "note": note,
+        "customer_name": customer.get("name"),
     }
 
 
