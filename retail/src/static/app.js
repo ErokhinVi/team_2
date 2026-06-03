@@ -114,6 +114,7 @@
         invest_now:       "Инвестировать",
         invest_amount:    "Сумма инвестиции, ₽",
         invest_btn:       "Купить",
+        tap_to_invest:    "Нажмите, чтобы выбрать",
         invest_fill:      "Укажите сумму инвестиции",
         invest_success:   "Заявка принята!",
         projected_1y:     "Прогноз через год",
@@ -233,6 +234,7 @@
         invest_now:       "Invest",
         invest_amount:    "Investment amount, ₽",
         invest_btn:       "Buy",
+        tap_to_invest:    "Tap to select",
         invest_fill:      "Please enter an investment amount",
         invest_success:   "Order accepted!",
         projected_1y:     "1-year projection",
@@ -875,6 +877,7 @@
               <div class="in-badges">
                 <span class="risk-badge ${risk}">${riskLabel(risk)}</span>
                 ${unsuitFlag}
+                <span class="in-cta">${t("tap_to_invest")} →</span>
               </div>
             </div>`;
           }).join("");
@@ -882,10 +885,13 @@
         instrumentsHtml = `<div class="empty">${t("no_instruments")}</div>`;
       }
 
-      // Invest form
+      // Invest panel (revealed + scrolled into view when an instrument is picked)
       const formHtml = instruments.length ? `
-        <div id="invest-open-section" style="display:${selectedInstrumentId ? 'block' : 'none'}; margin-top:18px">
-          <div class="section-title">${t("invest_now")}</div>
+        <div id="invest-open-section" class="invest-panel" style="display:${selectedInstrumentId ? 'block' : 'none'}">
+          <div class="invest-panel-head">
+            <span class="section-title" style="margin:0">${t("invest_now")}</span>
+            <span id="invest-panel-sel" class="invest-panel-sel"></span>
+          </div>
           <form id="invest-form" autocomplete="off">
             <div class="form-row">
               <label>${t("invest_amount")}</label>
@@ -899,14 +905,26 @@
 
       investContainer.innerHTML = heroHtml + holdingsHtml + instrumentsHtml + formHtml;
 
-      // Instrument selection
+      // Instrument selection — reveal the invest panel and bring it into view
       investContainer.querySelectorAll(".instrument").forEach(card => {
         card.addEventListener("click", () => {
           selectedInstrumentId = card.dataset.instrumentId;
           investContainer.querySelectorAll(".instrument").forEach(c => c.classList.remove("selected"));
           card.classList.add("selected");
+
+          const chosen = instruments.find(x => x.id === selectedInstrumentId);
+          const selEl = document.getElementById("invest-panel-sel");
+          if (selEl && chosen) {
+            const ret = chosen.expected_return_pct != null ? ` · ${chosen.expected_return_pct}%` : "";
+            selEl.textContent = chosen.name + ret;
+          }
           const section = document.getElementById("invest-open-section");
-          if (section) section.style.display = "block";
+          if (section) {
+            section.style.display = "block";
+            section.scrollIntoView({ behavior: "smooth", block: "center" });
+            const amt = section.querySelector('input[name="inv_amount"]');
+            if (amt) setTimeout(() => amt.focus({ preventScroll: true }), 320);
+          }
         });
       });
 
