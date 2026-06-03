@@ -43,6 +43,18 @@ Returns `{client_id, customer_name, eligible, explanation, card_number_masked,
 credit_limit_rub, balance_owed_rub, available_rub, min_payment_rub,
 interest_rate_pct, grace_period_days, source}`.
 
+### GET /api/deposits/{client_id}
+Savings account overview. Fetches deposit products from CIB (kind=deposit)
+and existing deposits from backend (GET /deposits/{client_id} if available).
+Returns `{client_id, customer_name, balance_rub, deposit_products,
+existing_deposits, total_deposited_rub, total_interest_rub, deposits_source}`.
+
+### POST /api/deposit-open
+Open a new deposit. Accepts `{client_id, product_id, amount_rub, term_months}`.
+Tries backend POST /deposits; if unavailable, returns simulated confirmation
+with `{status, client_id, product_id, amount_rub, term_months, rate_pct,
+estimated_interest_rub, message, source}`.
+
 ### POST /api/credit-card-payment
 Payment toward credit card balance. Accepts `{client_id, amount_rub}`.
 Tries backend `POST /credit-card-payment`; if unavailable, returns
@@ -58,7 +70,7 @@ amount_rub, max_amount_rub, reason, source}`.
 
 ## Кого я зову у соседей
 
-- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available)
+- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available)
 - cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`), `POST /card/activate` (payload: `{client_id, product_id: "card-debit-cashback"}`, returns personalised cashback rates by segment), `POST /card/credit-limit` (payload: `{client_id, product_id: "card-credit"}`, returns personalised credit limit, rate, grace period)
 
 ## Где работает блок локально

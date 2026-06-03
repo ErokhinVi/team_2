@@ -380,3 +380,110 @@ async def credit_card_payment(payload: dict) -> dict:
         "message": "Payment recorded",
         "source": "retail-simulated",
     }
+
+
+# ---- Savings / Deposits ----
+
+@app.get("/api/deposits/{client_id}")
+async def deposits_info(client_id: str) -> dict:
+    """Savings account overview for a customer.
+
+    1. Fetches deposit products from CIB (GET /products, kind=deposit).
+    2. Tries backend GET /deposits/{client_id} for real deposit data.
+    3. If backend doesn't have that yet, returns product catalogue only
+       so the UI can show available deposit offers.
+    """
+    customer = await _backend_get(f"/clients/{client_id}")
+
+    # Get deposit products from CIB
+    deposit_products = []
+    try:
+        products = await _cib_get("/products")
+        deposit_products = [
+            p for p in (products.get("items") or [])
+            if p.get("kind") in ("deposit", "savings")
+        ]
+    except Exception:
+        pass
+
+    # Try real deposits from backend
+    existing_deposits = []
+    total_deposited = 0
+    total_interest = 0
+    deposits_source = "none"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{BACKEND_URL}/deposits/{client_id}")
+        if r.status_code == 200:
+            dep_data = r.json()
+            existing_deposits = dep_data.get("items", [])
+            total_deposited = sum(d.get("amount_rub", 0) for d in existing_deposits)
+            total_interest = sum(d.get("interest_earned_rub", 0) for d in existing_deposits)
+            deposits_source = "backend"
+    except httpx.HTTPError:
+        pass
+
+    return {
+        "client_id": client_id,
+        "customer_name": customer.get("name", ""),
+        "balance_rub": customer.get("balance_rub", 0),
+        "deposit_products": deposit_products,
+        "existing_deposits": existing_deposits,
+        "total_deposited_rub": total_deposited,
+        "total_interest_rub": total_interest,
+        "deposits_source": deposits_source,
+    }
+
+
+@app.post("/api/deposit-open")
+async def deposit_open(payload: dict) -> dict:
+    """Open a new deposit / savings account.
+
+    Tries backend POST /deposits. If not available, returns a simulated
+    confirmation so the UI flow is complete.
+    """
+    client_id = payload.get("client_id")
+    product_id = payload.get("product_id")
+    amount = payload.get("amount_rub", 0)
+    term_months = payload.get("term_months", 12)
+
+    if not client_id or not product_id or amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="client_id, product_id and positive amount_rub required",
+        )
+
+    # Try real endpoint on backend
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{BACKEND_URL}/deposits", json=payload)
+        if r.status_code == 200:
+            return r.json()
+    except httpx.HTTPError:
+        pass
+
+    # Fallback: simulated deposit opening
+    # Get rate from CIB product catalogue
+    rate_pct = 14.0
+    try:
+        products = await _cib_get("/products")
+        for p in products.get("items", []):
+            if p.get("id") == product_id and p.get("rate_pct"):
+                rate_pct = p["rate_pct"]
+                break
+    except Exception:
+        pass
+
+    estimated_interest = round(amount * (rate_pct / 100) * (term_months / 12), 2)
+
+    return {
+        "status": "ok",
+        "client_id": client_id,
+        "product_id": product_id,
+        "amount_rub": amount,
+        "term_months": term_months,
+        "rate_pct": rate_pct,
+        "estimated_interest_rub": estimated_interest,
+        "message": "Deposit opened successfully",
+        "source": "retail-simulated",
+    }
