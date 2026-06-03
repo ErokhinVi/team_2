@@ -124,7 +124,13 @@ Returns confirmation with rate, maturity date, and projected interest earned:
 ```
 
 For `deposit-flex`, `term_months` and `matures_at` are null; `early_withdrawal` is true.
-HTTP 400 if amount is below the product minimum.
+HTTP 400 if amount is below the product minimum **or** the customer has insufficient funds. HTTP 404 if client unknown.
+
+This endpoint now actually moves the money: it calls backend `POST /api/deposits` to debit the customer's balance and book the deposit. The response includes `deposit_id` and `new_balance_rub` from backend (keep the `deposit_id` — it's needed to withdraw later).
+
+### POST /deposit/withdraw
+
+Close a deposit and return the money (+ interest) to the customer. Request body: `{ "deposit_id": "<string>", "early": <bool, optional> }`. Proxies backend `POST /api/deposits/{deposit_id}/withdraw`. Returns `{status, client_id, deposit_id, kind, principal_rub, interest_rub, returned_rub, new_balance_rub, ts}`. Flexible deposits always return full interest; fixed-term pulled early get reduced interest; at maturity, full interest. HTTP 404 if the deposit is unknown.
 
 ### POST /card/credit-limit
 

@@ -169,6 +169,11 @@ class DepositOpenRequest(BaseModel):
     amount_rub: float
 
 
+class DepositWithdrawRequest(BaseModel):
+    deposit_id: str
+    early: bool = False
+
+
 class SuitabilityRequest(BaseModel):
     client_id: str
     product_id: str
@@ -427,20 +432,61 @@ async def deposit_open(req: DepositOpenRequest) -> dict:
         req.amount_rub * product["rate_pct"] / 100 * (term_months or 12) / 12
     )
 
+    # Move the money: call backend to debit the balance and book the deposit.
+    payload = {
+        "client_id": req.client_id,
+        "product": req.product_id,
+        "amount_rub": req.amount_rub,
+        "term_months": term_months,
+        "rate_pct": product["rate_pct"],
+    }
+    async with httpx.AsyncClient(timeout=10) as client:
+        mv = await client.post(f"{BACKEND_URL}/api/deposits", json=payload)
+    if mv.status_code == 400:
+        # Insufficient funds (or similar) — surface the backend's clear reason.
+        detail = mv.json().get("detail", "Deposit could not be opened")
+        raise HTTPException(status_code=400, detail=detail)
+    if mv.status_code == 404:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if mv.status_code not in (200, 201):
+        raise HTTPException(status_code=502, detail="Backend could not open the deposit")
+    moved = mv.json()
+
     return {
         "client_id": req.client_id,
         "product_id": req.product_id,
         "product_name": product["name"],
         "opened": True,
+        "deposit_id": moved.get("deposit_id"),
         "amount_rub": req.amount_rub,
         "rate_pct": product["rate_pct"],
         "term_months": term_months,
         "early_withdrawal": product["early_withdrawal"],
         "opened_at": opened_at,
-        "matures_at": matures_at,
+        # Prefer backend's authoritative maturity and balance; fall back to ours.
+        "matures_at": moved.get("matures_at", matures_at),
+        "new_balance_rub": moved.get("new_balance_rub"),
         "projected_interest_rub": interest_rub,
         "customer_name": customer.get("name"),
     }
+
+
+@app.post("/deposit/withdraw")
+async def deposit_withdraw(req: DepositWithdrawRequest) -> dict:
+    """Close a deposit and return the money (+ interest) to the customer."""
+    body = {"early": req.early} if req.early else {}
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(
+            f"{BACKEND_URL}/api/deposits/{req.deposit_id}/withdraw", json=body
+        )
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Deposit not found")
+    if resp.status_code == 400:
+        detail = resp.json().get("detail", "Deposit could not be withdrawn")
+        raise HTTPException(status_code=400, detail=detail)
+    if resp.status_code not in (200, 201):
+        raise HTTPException(status_code=502, detail="Backend could not withdraw the deposit")
+    return resp.json()
 
 
 async def _fetch_customer(client_id: str) -> dict:
