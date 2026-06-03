@@ -102,7 +102,9 @@ PRODUCTS = [
     {"id": "deposit-flex","kind": "deposit", "name": "Накопительный счёт","rate_pct": 9.5,  "term_months": None,"early_withdrawal": True},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
     {"id": "credit-auto", "kind": "credit", "name": "Автокредит", "rate_pct": 13.9},
+    {"id": "credit-secured", "kind": "secured_credit", "name": "Кредит под залог депозита/портфеля", "rate_pct": 12.9},
     {"id": "credit-refinance", "kind": "refinance", "name": "Рефинансирование кредитов", "rate_pct": 15.9},
+    {"id": "loan-protection", "kind": "insurance", "name": "Страхование кредита", "annual_rate_pct": 1.8},
     {"id": "mortgage", "kind": "mortgage", "name": "Ипотека", "rate_pct": 16.0,
      "term_years_max": 30, "min_down_payment_pct": 20, "max_ltv_pct": 80},
     # Investment / tradable securities. risk_level 1 (lowest) .. 5 (highest).
@@ -252,6 +254,18 @@ MORTGAGE_MAX_RISK = 0.55
 MORTGAGE_MIN_INCOME = 40_000     # mortgages need a stronger income
 MORTGAGE_MAX_DTI = 0.50          # monthly payment <= 50% of monthly income
 
+# Loan protection insurance — adds a product and fee income AND lowers credit
+# risk (covers repayments on job loss / illness). Priced as a % of loan per year.
+INSURANCE_ANNUAL_RATE_PCT = 1.8
+# Insured borrowers default less, so the loan itself earns a small rate discount.
+INSURED_LOAN_RATE_DISCOUNT_PCT = 0.5
+
+# Secured lending — borrow against a pledged deposit or investment portfolio.
+# Collateral protects the bank, so risk limits relax and the rate is lower.
+SECURED_LOAN_MAX_LTV = {"deposit": 0.85, "investment": 0.65}  # investments are volatile
+SECURED_LOAN_MAX_RISK = 0.85     # lenient — the collateral carries the risk
+SECURED_LOAN_MAX_DSTI = 0.60     # affordability still matters, but looser
+
 # ── Referral programme rules (cib owns the policy) ─────────────────────────
 # Reward paid to the existing customer who refers a friend, by their segment —
 # premium tiers earn a bigger bonus.
@@ -360,6 +374,20 @@ class OrderCheckRequest(BaseModel):
     side: str = "buy"          # "buy" or "sell"
     qty: int
     price_rub: float | None = None  # if omitted, priced from backend catalogue
+
+
+class InsuranceQuoteRequest(BaseModel):
+    client_id: str
+    loan_amount_rub: float
+    term_months: int = LOAN_DEFAULT_TERM_MONTHS
+
+
+class SecuredCreditRequest(BaseModel):
+    client_id: str
+    amount_rub: float
+    collateral_rub: float
+    collateral_type: str = "deposit"   # "deposit" or "investment"
+    term_months: int = LOAN_DEFAULT_TERM_MONTHS
 
 
 @app.get("/health")
@@ -673,6 +701,108 @@ async def credit_refinance(req: RefinanceRequest) -> dict:
         "monthly_saving_rub": monthly_saving,
         "total_saving_rub": total_saving,
         "reasons": [],
+        "customer_name": customer.get("name"),
+    }
+
+
+@app.post("/insurance/loan-protection-quote")
+async def insurance_quote(req: InsuranceQuoteRequest) -> dict:
+    """Quote loan protection insurance for a loan. Adds fee income and lowers the
+    bank's credit risk (covers repayments on job loss / illness), so an insured
+    loan also earns a small rate discount."""
+    if req.loan_amount_rub <= 0 or req.term_months <= 0:
+        raise HTTPException(status_code=400, detail="Invalid loan amount or term")
+    customer = await _fetch_customer(req.client_id)
+
+    annual = INSURANCE_ANNUAL_RATE_PCT
+    monthly_premium = round(req.loan_amount_rub * annual / 100 / 12)
+    total_premium = monthly_premium * req.term_months
+    return {
+        "client_id": req.client_id,
+        "product_id": "loan-protection",
+        "loan_amount_rub": req.loan_amount_rub,
+        "term_months": req.term_months,
+        "coverage_rub": req.loan_amount_rub,
+        "annual_rate_pct": annual,
+        "monthly_premium_rub": monthly_premium,
+        "total_premium_rub": total_premium,
+        "loan_rate_discount_pct": INSURED_LOAN_RATE_DISCOUNT_PCT,
+        "covers": ["job loss", "long-term illness", "death (outstanding balance cleared)"],
+        "customer_name": customer.get("name"),
+    }
+
+
+@app.post("/credit/secured-decide")
+async def secured_credit_decide(req: SecuredCreditRequest) -> dict:
+    """Lending against pledged collateral (a deposit or investment portfolio).
+    Collateral protects the bank, so risk limits relax and the rate is lower —
+    lets the bank safely serve customers it would decline unsecured."""
+    if req.amount_rub <= 0 or req.collateral_rub <= 0 or req.term_months <= 0:
+        raise HTTPException(status_code=400, detail="Invalid amount, collateral or term")
+
+    product = next(p for p in PRODUCTS if p["id"] == "credit-secured")
+    customer = await _fetch_customer(req.client_id)
+    income = customer.get("income_rub", 0)
+    risk = customer.get("risk_score", 1.0)
+
+    ctype = req.collateral_type if req.collateral_type in SECURED_LOAN_MAX_LTV else "deposit"
+    max_ltv = SECURED_LOAN_MAX_LTV[ctype]
+
+    # Sanity-check the pledged collateral against the customer's actual assets.
+    available = customer.get("balance_rub", 0)
+    if ctype == "investment":
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                pf = await client.get(f"{BACKEND_URL}/clients/{req.client_id}/portfolio")
+            if pf.status_code == 200:
+                available = pf.json().get("market_value_rub", 0)
+        except httpx.HTTPError:
+            available = req.collateral_rub  # can't verify; trust the caller
+
+    reasons: list[str] = []
+    if req.collateral_rub > available:
+        reasons.append(f"pledged collateral exceeds available assets ({req.collateral_rub} > {available})")
+
+    max_loan = round(req.collateral_rub * max_ltv / 10_000) * 10_000
+    if req.amount_rub > max_loan:
+        reasons.append(
+            f"loan exceeds {int(max_ltv*100)}% of collateral value (max {max_loan})"
+        )
+    if risk > SECURED_LOAN_MAX_RISK:
+        reasons.append(f"risk score too high even for secured lending ({risk:.2f})")
+
+    # Affordability still applies, but looser since collateral backs the loan.
+    rate = _risk_rate(product["rate_pct"], risk)
+    payment = _monthly_payment(req.amount_rub, rate, max(1, req.term_months))
+    existing = customer.get("existing_monthly_debt_rub", 0.0)
+    dsti = (existing + payment) / income if income > 0 else 1.0
+    if dsti > SECURED_LOAN_MAX_DSTI:
+        reasons.append(f"debt-service-to-income too high ({dsti*100:.0f}% > {int(SECURED_LOAN_MAX_DSTI*100)}%)")
+
+    approved = not reasons
+    decision_id = _audit("/credit/secured-decide", req.client_id, {
+        "product_id": "credit-secured", "amount_rub": req.amount_rub,
+        "collateral_rub": req.collateral_rub, "collateral_type": ctype,
+        "ltv_pct": round(req.amount_rub / req.collateral_rub * 100, 1),
+        "risk_score": risk, "approved": approved, "reasons": reasons,
+    })
+    return {
+        "client_id": req.client_id,
+        "product_id": "credit-secured",
+        "approved": approved,
+        "decision_id": decision_id,
+        "amount_rub": req.amount_rub,
+        "collateral_rub": req.collateral_rub,
+        "collateral_type": ctype,
+        "max_loan_rub": max_loan,
+        "ltv_pct": round(req.amount_rub / req.collateral_rub * 100, 1),
+        "max_ltv_pct": int(max_ltv * 100),
+        "rate_pct": rate if approved else None,
+        "term_months": req.term_months,
+        "monthly_payment_rub": round(payment),
+        "dsti_pct": round(dsti * 100, 1),
+        "reasons": reasons,
+        "binding_decision_basis": "reasons",
         "customer_name": customer.get("name"),
     }
 
@@ -1340,6 +1470,8 @@ PRODUCT_COPY = {
     "credit-consumer":     ("Consumer loan", "Instant decision, rate to match you"),
     "credit-auto":         ("Car loan", "Lower rate, secured by your car"),
     "credit-refinance":    ("Refinancing", "Move your debt here, pay less"),
+    "credit-secured":      ("Secured loan", "Borrow against your savings, lower rate"),
+    "loan-protection":     ("Loan protection", "Repayments covered if life happens"),
     "mortgage":            ("Mortgage", "Your own home, from 16%"),
     "inv-gold":            ("Gold fund", "Safe haven for uncertain times"),
     "inv-ofz":             ("Government bonds", "Lowest risk, steady income"),
@@ -1354,7 +1486,8 @@ PRODUCT_COPY = {
 CATEGORIES = [
     ("Cards", "💳", ("card", "credit_card")),
     ("Savings & Deposits", "🏦", ("deposit",)),
-    ("Lending", "💰", ("credit", "mortgage", "refinance")),
+    ("Lending", "💰", ("credit", "mortgage", "refinance", "secured_credit")),
+    ("Protection", "🛡️", ("insurance",)),
     ("Investments", "📈", ("investment",)),
 ]
 
@@ -1373,10 +1506,14 @@ def _product_highlight(p: dict) -> str:
         return f"from {p['rate_pct']}%"
     if kind == "refinance":
         return f"from {p['rate_pct']}% · cut your payments"
+    if kind == "secured_credit":
+        return f"from {p['rate_pct']}% · collateral-backed"
     if kind == "mortgage":
         return f"from {p['rate_pct']}% · up to {p['term_years_max']} yrs"
     if kind == "investment":
         return f"~{p['expected_return_pct']}% · risk {p['risk_level']}/5"
+    if kind == "insurance":
+        return f"from {p['annual_rate_pct']}%/yr of loan"
     return ""
 
 

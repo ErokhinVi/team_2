@@ -22,7 +22,9 @@ Current products:
 - `deposit-flex` — Flexible savings account, 9.5%, withdraw anytime, min 1,000 rubles
 - `credit-consumer` — Consumer loan, base 18.9% (risk-based: personalised rate returned by /credit/decide)
 - `credit-auto` — Car loan, base 13.9% (secured, cheaper than consumer)
+- `credit-secured` — Loan against pledged deposit/portfolio, base 12.9% (see POST /credit/secured-decide)
 - `credit-refinance` — Refinancing existing debt, base 15.9% (see POST /credit/refinance)
+- `loan-protection` — Loan protection insurance, ~1.8%/yr of loan (see POST /insurance/loan-protection-quote)
 - `mortgage` — Mortgage, from 16%, up to 30 years, min 20% down payment
 - Investments (each has `subtype`, `risk_level` 1–5, `expected_return_pct`, `min_investment_rub`):
   - `inv-ofz` — Government bonds (OFZ), risk 1, ~13%
@@ -67,6 +69,16 @@ HTTP 404 if client or product is not found. HTTP 400 if product is not a credit 
 ### GET /audit/decisions
 
 Decision audit trail for compliance review. Every credit decision (loan, mortgage, refinance) is recorded with its inputs, the risk score, the binding `reasons`, the outcome and a `policy_version`, each with a unique `decision_id` (also returned on the decision responses). Params: `client_id` (optional filter), `limit` (default 50). Returns `{policy_version, total, items: [...]}`, newest first. Records are also emitted to the service logs for durable capture.
+
+### POST /credit/secured-decide
+
+Lending against pledged collateral (a deposit or investment portfolio). Because collateral protects the bank, risk limits relax (risk up to 0.85, DSTI up to 60%) and the rate is lower (base 12.9%, risk-adjusted). Request: `{ "client_id", "amount_rub", "collateral_rub", "collateral_type": "deposit"|"investment", "term_months" }`.
+
+Max loan = collateral × LTV (deposit 85%, investment 65%). Verifies pledged collateral against the customer's balance (or live portfolio value for investments). Returns `{approved, max_loan_rub, ltv_pct, max_ltv_pct, rate_pct, monthly_payment_rub, dsti_pct, reasons, decision_id, ...}`. Lets the bank safely serve customers it would decline unsecured.
+
+### POST /insurance/loan-protection-quote
+
+Quotes loan protection insurance for a loan — adds fee income and lowers credit risk (covers repayments on job loss / illness / death). Request: `{ "client_id", "loan_amount_rub", "term_months" }`. Returns `{coverage_rub, monthly_premium_rub, total_premium_rub, annual_rate_pct, loan_rate_discount_pct, covers, ...}`. An insured loan earns a 0.5% rate discount — surface this at loan approval as an upsell.
 
 ### POST /credit/refinance
 
