@@ -31,8 +31,11 @@
 
     <div id="lock-banner" style="display:none"></div>
 
-    <!-- Bottom navigation is built from the TAB_DEFS registry in app.js -->
+    <!-- Bottom navigation built from TAB_GROUPS in app.js -->
     <div class="tabs"></div>
+
+    <!-- Sub-tab strip — populated dynamically per active group -->
+    <div id="sub-tabs" class="sub-tabs" style="display:none"></div>
 
     <!-- ===== Transfers pane (home) ===== -->
     <div class="tab-pane show" data-pane="transfers">
