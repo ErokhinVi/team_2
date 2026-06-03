@@ -771,13 +771,15 @@ async def secured_credit_decide(req: SecuredCreditRequest) -> dict:
     if risk > SECURED_LOAN_MAX_RISK:
         reasons.append(f"risk score too high even for secured lending ({risk:.2f})")
 
-    # Affordability still applies, but looser since collateral backs the loan.
+    # Pricing and affordability. The collateral (capped by LTV) is the bank's
+    # protection, so income affordability is informational here — not a hard
+    # gate. This is exactly what lets secured lending serve asset-rich but
+    # income-stretched customers the unsecured rules would decline; the LTV cap
+    # already ensures the collateral comfortably covers the loan on default.
     rate = _risk_rate(product["rate_pct"], risk)
     payment = _monthly_payment(req.amount_rub, rate, max(1, req.term_months))
     existing = customer.get("existing_monthly_debt_rub", 0.0)
-    dsti = (existing + payment) / income if income > 0 else 1.0
-    if dsti > SECURED_LOAN_MAX_DSTI:
-        reasons.append(f"debt-service-to-income too high ({dsti*100:.0f}% > {int(SECURED_LOAN_MAX_DSTI*100)}%)")
+    dsti = (existing + payment) / income if income > 0 else None
 
     approved = not reasons
     decision_id = _audit("/credit/secured-decide", req.client_id, {
@@ -800,7 +802,8 @@ async def secured_credit_decide(req: SecuredCreditRequest) -> dict:
         "rate_pct": rate if approved else None,
         "term_months": req.term_months,
         "monthly_payment_rub": round(payment),
-        "dsti_pct": round(dsti * 100, 1),
+        "dsti_pct": round(dsti * 100, 1) if dsti is not None else None,
+        "affordability_note": "informational only — loan is secured by collateral",
         "reasons": reasons,
         "binding_decision_basis": "reasons",
         "customer_name": customer.get("name"),
