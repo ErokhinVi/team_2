@@ -71,6 +71,8 @@ PRODUCTS = [
     {"id": "deposit-12m", "kind": "deposit", "name": "Депозит 12 месяцев","rate_pct": 17.0, "term_months": 12, "early_withdrawal": False},
     {"id": "deposit-flex","kind": "deposit", "name": "Накопительный счёт","rate_pct": 9.5,  "term_months": None,"early_withdrawal": True},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
+    {"id": "credit-auto", "kind": "credit", "name": "Автокредит", "rate_pct": 13.9},
+    {"id": "credit-refinance", "kind": "refinance", "name": "Рефинансирование кредитов", "rate_pct": 15.9},
     {"id": "mortgage", "kind": "mortgage", "name": "Ипотека", "rate_pct": 16.0,
      "term_years_max": 30, "min_down_payment_pct": 20, "max_ltv_pct": 80},
     # Investment / tradable securities. risk_level 1 (lowest) .. 5 (highest).
@@ -84,6 +86,7 @@ PRODUCTS = [
     {"id": "inv-equity-fund","kind": "investment", "subtype": "fund",  "ticker": "FXEQ",  "asset_type": "equity_fund", "name": "Фонд акций",                    "risk_level": 3, "expected_return_pct": 19.0, "lot_size": 1,  "commission_pct": 0.20, "min_order_rub": 5_000,  "min_investment_rub": 5_000},
     {"id": "inv-bluechip",   "kind": "investment", "subtype": "stock", "ticker": "SBER",  "asset_type": "stock",       "name": "Голубые фишки (акции)",         "risk_level": 4, "expected_return_pct": 22.0, "lot_size": 1,  "commission_pct": 0.30, "min_order_rub": 30_000, "min_investment_rub": 30_000, "alt_tickers": ["GAZP", "LKOH"]},
     {"id": "inv-growth",     "kind": "investment", "subtype": "stock", "ticker": "YNDX",  "asset_type": "stock",       "name": "Акции роста",                   "risk_level": 5, "expected_return_pct": 28.0, "lot_size": 1,  "commission_pct": 0.30, "min_order_rub": 50_000, "min_investment_rub": 50_000},
+    {"id": "inv-gold",       "kind": "investment", "subtype": "fund",  "ticker": "FXGD",  "asset_type": "commodity_fund","name": "Фонд на золото",              "risk_level": 2, "expected_return_pct": 11.0, "lot_size": 1,  "commission_pct": 0.20, "min_order_rub": 5_000,  "min_investment_rub": 5_000},
 ]
 
 # Human-readable investor risk profile names by max acceptable risk level.
@@ -166,6 +169,46 @@ MORTGAGE_MAX_RISK = 0.55
 MORTGAGE_MIN_INCOME = 40_000     # mortgages need a stronger income
 MORTGAGE_MAX_DTI = 0.50          # monthly payment <= 50% of monthly income
 
+# ── Referral programme rules (cib owns the policy) ─────────────────────────
+# Reward paid to the existing customer who refers a friend, by their segment —
+# premium tiers earn a bigger bonus.
+REFERRAL_BONUS_BY_SEGMENT: dict[str, int] = {
+    "mass":          500,
+    "mass_affluent": 1_000,
+    "premium":       2_000,
+    "private":       5_000,
+    "sme":           1_500,
+}
+REFERRAL_DEFAULT_BONUS = 500          # fallback if segment is unknown
+REFERRAL_REFEREE_BONUS = 500          # flat welcome bonus for the new customer
+# A referee may redeem at most one referral code. We detect a prior redemption
+# by this marker product on their profile (recorded by the caller after a
+# successful redemption via backend POST /clients/{id}/products).
+REFERRAL_PRODUCT_MARKER = "referral_bonus"
+# Optional "new customer only" gate: if set, the referee must have joined
+# within this many days. None disables it (the current customer base is
+# long-standing, so this stays off until the bank decides to require it).
+REFERRAL_REFEREE_MAX_TENURE_DAYS: int | None = None
+# A referrer cannot earn another referral bonus until this many days have
+# passed since their last one. Enforced only when the caller supplies
+# `referrer_last_referral_at`; otherwise reported as policy for the caller.
+REFERRAL_REFERRER_COOLDOWN_DAYS = 30
+
+
+def _risk_rate(base_rate: float, risk: float) -> float:
+    """Risk-based pricing: a safer customer gets a discount, a riskier one pays
+    a premium. Lets the bank approve more borrowers at a fair, matched rate
+    instead of one flat take-it-or-leave-it price."""
+    if risk <= 0.20:
+        adj = -4.0
+    elif risk <= 0.35:
+        adj = -2.0
+    elif risk <= 0.50:
+        adj = 0.0
+    else:
+        adj = 3.0
+    return round(base_rate + adj, 1)
+
 app = FastAPI(title="cib — корпоратив и бизнес-логика", version="1.0.0")
 
 
@@ -206,6 +249,21 @@ class MortgageRequest(BaseModel):
     property_price_rub: float
     down_payment_rub: float
     term_years: int = 20
+
+
+class RefinanceRequest(BaseModel):
+    client_id: str
+    current_balance_rub: float
+    current_rate_pct: float
+    term_months: int = 36
+
+
+class ReferralValidateRequest(BaseModel):
+    referrer_id: str                       # existing customer whose code is used
+    referee_id: str                        # customer redeeming the code
+    code: str | None = None                # the referral code string (optional)
+    # Optional, lets cib enforce the referrer cooldown without holding state:
+    referrer_last_referral_at: str | None = None  # ISO date "YYYY-MM-DD"
 
 
 class OrderCheckRequest(BaseModel):
@@ -288,10 +346,16 @@ async def credit_decide(req: DecideRequest) -> dict:
         explanation = "Decision made based on your financial profile." if approved else \
             "We are unable to approve this application at this time."
 
+    # Risk-based pricing: personalised rate for approved customers.
+    personalised_rate = _risk_rate(product["rate_pct"], customer.get("risk_score", 1.0)) \
+        if approved else None
+
     return {
         "client_id": req.client_id,
         "product_id": req.product_id,
         "approved": approved,
+        "rate_pct": personalised_rate,
+        "base_rate_pct": product["rate_pct"],
         "reasons": reasons,
         "explanation": explanation,
         "customer_name": customer.get("name"),
@@ -380,6 +444,65 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
         "monthly_payment_rub": monthly_payment,
         "reasons": reasons,
         "explanation": explanation,
+        "customer_name": customer.get("name"),
+    }
+
+
+def _monthly_payment(principal: float, annual_rate_pct: float, months: int) -> float:
+    r = annual_rate_pct / 100 / 12
+    if r <= 0:
+        return principal / months
+    return principal * r / (1 - (1 + r) ** -months)
+
+
+@app.post("/credit/refinance")
+async def credit_refinance(req: RefinanceRequest) -> dict:
+    """Refinancing offer: take over the customer's existing debt at a lower,
+    risk-based rate and show the saving. Wins customers from competitors."""
+    if req.current_balance_rub <= 0 or req.term_months <= 0:
+        raise HTTPException(status_code=400, detail="Invalid balance or term")
+
+    product = next(p for p in PRODUCTS if p["id"] == "credit-refinance")
+    customer = await _fetch_customer(req.client_id)
+    income = customer.get("income_rub", 0)
+    risk = customer.get("risk_score", 1.0)
+
+    reasons: list[str] = []
+    if customer.get("has_overdue_history"):
+        reasons.append("overdue payment history")
+    if risk > MAX_RISK_SCORE_SMALL:
+        reasons.append(f"risk score too high ({risk:.2f})")
+    if income < MIN_INCOME_RUB:
+        reasons.append(f"income below minimum ({income} < {MIN_INCOME_RUB})")
+
+    if reasons:
+        return {
+            "client_id": req.client_id, "product_id": "credit-refinance",
+            "approved": False, "beneficial": False, "reasons": reasons,
+            "customer_name": customer.get("name"),
+        }
+
+    new_rate = _risk_rate(product["rate_pct"], risk)
+    old_payment = round(_monthly_payment(req.current_balance_rub, req.current_rate_pct, req.term_months))
+    new_payment = round(_monthly_payment(req.current_balance_rub, new_rate, req.term_months))
+    monthly_saving = old_payment - new_payment
+    total_saving = monthly_saving * req.term_months
+    beneficial = new_rate < req.current_rate_pct and monthly_saving > 0
+
+    return {
+        "client_id": req.client_id,
+        "product_id": "credit-refinance",
+        "approved": True,
+        "beneficial": beneficial,
+        "current_rate_pct": req.current_rate_pct,
+        "new_rate_pct": new_rate,
+        "balance_rub": req.current_balance_rub,
+        "term_months": req.term_months,
+        "old_monthly_payment_rub": old_payment,
+        "new_monthly_payment_rub": new_payment,
+        "monthly_saving_rub": monthly_saving,
+        "total_saving_rub": total_saving,
+        "reasons": [],
         "customer_name": customer.get("name"),
     }
 
@@ -651,6 +774,14 @@ async def next_best_offers(client_id: str, limit: int = 5) -> dict:
         raise HTTPException(status_code=502, detail="Backend recommendations unavailable")
     data = resp.json()
 
+    # Pre-approved figures, so a suggestion can show "you're already approved for X".
+    customer = await _fetch_customer(client_id)
+    preapproved = {
+        "consumer_credit": _preapprove_consumer_loan(customer),
+        "credit_card": _preapprove_credit_card(customer),
+        "mortgage": _prequalify_mortgage(customer),
+    }
+
     offers = []
     for rec in data.get("recommendations", []):
         code = rec.get("product")
@@ -677,6 +808,11 @@ async def next_best_offers(client_id: str, limit: int = 5) -> dict:
                 cib["handled_by"] = routing["handled_by"]
             if routing.get("note"):
                 cib["note"] = routing["note"]
+        # Fold in a concrete pre-approved figure where the customer qualifies.
+        pa = preapproved.get(code)
+        if pa:
+            cib["pre_approved"] = {k: pa[k] for k in
+                ("headline", "amount_rub", "limit_rub", "max_loan_rub", "rate_pct") if k in pa}
         offers.append({**rec, "cib": cib})
 
     return {
@@ -1011,8 +1147,11 @@ PRODUCT_COPY = {
     "deposit-6m":          ("6-month deposit", "Balanced term and rate"),
     "deposit-12m":         ("12-month deposit", "Our best savings rate"),
     "deposit-flex":        ("Flexible savings", "Withdraw anytime, earn daily"),
-    "credit-consumer":     ("Consumer loan", "Instant decision, fair rate"),
+    "credit-consumer":     ("Consumer loan", "Instant decision, rate to match you"),
+    "credit-auto":         ("Car loan", "Lower rate, secured by your car"),
+    "credit-refinance":    ("Refinancing", "Move your debt here, pay less"),
     "mortgage":            ("Mortgage", "Your own home, from 16%"),
+    "inv-gold":            ("Gold fund", "Safe haven for uncertain times"),
     "inv-ofz":             ("Government bonds", "Lowest risk, steady income"),
     "inv-corp-bond":       ("Corporate bond fund", "Higher yield, low risk"),
     "inv-etf-index":       ("Index ETF", "The whole market in one buy"),
@@ -1025,7 +1164,7 @@ PRODUCT_COPY = {
 CATEGORIES = [
     ("Cards", "💳", ("card", "credit_card")),
     ("Savings & Deposits", "🏦", ("deposit",)),
-    ("Lending", "💰", ("credit", "mortgage")),
+    ("Lending", "💰", ("credit", "mortgage", "refinance")),
     ("Investments", "📈", ("investment",)),
 ]
 
@@ -1042,6 +1181,8 @@ def _product_highlight(p: dict) -> str:
         return f"{p['rate_pct']}% p.a. · {term}"
     if kind == "credit":
         return f"from {p['rate_pct']}%"
+    if kind == "refinance":
+        return f"from {p['rate_pct']}% · cut your payments"
     if kind == "mortgage":
         return f"from {p['rate_pct']}% · up to {p['term_years_max']} yrs"
     if kind == "investment":
@@ -1059,10 +1200,11 @@ def _preapprove_consumer_loan(c: dict) -> dict | None:
     if amount < 30_000:
         return None
     prod = next(p for p in PRODUCTS if p["id"] == "credit-consumer")
+    rate = _risk_rate(prod["rate_pct"], risk)
     return {
         "product_id": "credit-consumer", "type": "loan", "name": prod["name"],
         "headline": f"You're pre-approved for a loan up to {amount:,} ₽".replace(",", " "),
-        "amount_rub": amount, "rate_pct": prod["rate_pct"],
+        "amount_rub": amount, "rate_pct": rate,
         "action": {"method": "POST", "path": "/credit/decide"},
     }
 
@@ -1147,6 +1289,108 @@ async def pre_approved(client_id: str) -> dict:
         "customer_name": customer.get("name"),
         "total": len(offers),
         "offers": offers,
+    }
+
+
+def _referral_bonus(referrer: dict) -> int:
+    """Referral reward for the existing customer, scaled by their segment."""
+    segment = referrer.get("segment", "")
+    return REFERRAL_BONUS_BY_SEGMENT.get(segment, REFERRAL_DEFAULT_BONUS)
+
+
+def _days_since(iso_date: str | None) -> int | None:
+    """Whole days between an ISO date (YYYY-MM-DD) and today, or None if unparseable."""
+    if not iso_date:
+        return None
+    import datetime
+    try:
+        d = datetime.date.fromisoformat(iso_date[:10])
+    except (ValueError, TypeError):
+        return None
+    return (datetime.date.today() - d).days
+
+
+@app.post("/referral/validate")
+async def referral_validate(req: ReferralValidateRequest) -> dict:
+    """Decide whether a proposed referral-code redemption is allowed and how big
+    the bonus is. cib owns the programme rules; retail/backend act on the verdict.
+
+    Rules enforced:
+      • you can't refer yourself;
+      • a referee can redeem at most one code (detected by the referral marker
+        on their profile);
+      • optional "new customer only" window (REFERRAL_REFEREE_MAX_TENURE_DAYS);
+      • referrer cooldown between bonuses (when the caller passes the last date).
+
+    On approval the reward is `referrer_bonus_rub` (by the referrer's segment)
+    plus a flat `referee_bonus_rub` welcome bonus for the new customer.
+    """
+    reasons: list[str] = []
+
+    # Rule 1 — no self-referral. Cheap check, do it before any network call.
+    if req.referrer_id == req.referee_id:
+        reasons.append("a customer cannot refer themselves")
+
+    # Both parties must exist (404 from backend if not).
+    referrer = await _fetch_customer(req.referrer_id)
+    referee = await _fetch_customer(req.referee_id)
+
+    # Rule 2 — a referee may redeem only one referral code, ever.
+    if REFERRAL_PRODUCT_MARKER in set(referee.get("products", [])):
+        reasons.append("this customer has already redeemed a referral code")
+
+    # Rule 3 — optional new-customer window on the referee.
+    if REFERRAL_REFEREE_MAX_TENURE_DAYS is not None:
+        tenure = _days_since(referee.get("joined_at"))
+        if tenure is not None and tenure > REFERRAL_REFEREE_MAX_TENURE_DAYS:
+            reasons.append(
+                f"referee joined {tenure} days ago, beyond the "
+                f"{REFERRAL_REFEREE_MAX_TENURE_DAYS}-day new-customer window"
+            )
+
+    # Rule 4 — referrer cooldown (only enforceable when the caller tells us when
+    # the referrer last earned a referral bonus).
+    since_last = _days_since(req.referrer_last_referral_at)
+    if since_last is not None and since_last < REFERRAL_REFERRER_COOLDOWN_DAYS:
+        reasons.append(
+            f"referrer is in cooldown: {since_last} of "
+            f"{REFERRAL_REFERRER_COOLDOWN_DAYS} days elapsed since their last referral"
+        )
+
+    allowed = not reasons
+    referrer_bonus = _referral_bonus(referrer) if allowed else 0
+    referee_bonus = REFERRAL_REFEREE_BONUS if allowed else 0
+
+    return {
+        "allowed": allowed,
+        "reasons": reasons,
+        "code": req.code,
+        "referrer": {
+            "client_id": req.referrer_id,
+            "name": referrer.get("name"),
+            "segment": referrer.get("segment"),
+        },
+        "referee": {
+            "client_id": req.referee_id,
+            "name": referee.get("name"),
+        },
+        "bonus": {
+            "referrer_bonus_rub": referrer_bonus,
+            "referee_bonus_rub": referee_bonus,
+            "total_rub": referrer_bonus + referee_bonus,
+            "currency": "RUB",
+        },
+        # The full rulebook, echoed so retail/backend can show it and know what
+        # to record after acting (mark the referee with the referral marker).
+        "policy": {
+            "self_referral_blocked": True,
+            "one_redemption_per_referee": True,
+            "referee_marker_product": REFERRAL_PRODUCT_MARKER,
+            "referee_max_tenure_days": REFERRAL_REFEREE_MAX_TENURE_DAYS,
+            "referrer_cooldown_days": REFERRAL_REFERRER_COOLDOWN_DAYS,
+            "bonus_by_segment_rub": REFERRAL_BONUS_BY_SEGMENT,
+            "referee_bonus_rub": REFERRAL_REFEREE_BONUS,
+        },
     }
 
 

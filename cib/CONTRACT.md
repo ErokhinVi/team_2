@@ -20,7 +20,9 @@ Current products:
 - `deposit-6m`  — 6-month term deposit, 15%, min 10,000 rubles
 - `deposit-12m` — 12-month term deposit, 17%, min 30,000 rubles
 - `deposit-flex` — Flexible savings account, 9.5%, withdraw anytime, min 1,000 rubles
-- `credit-consumer` — Consumer loan, 18.9%
+- `credit-consumer` — Consumer loan, base 18.9% (risk-based: personalised rate returned by /credit/decide)
+- `credit-auto` — Car loan, base 13.9% (secured, cheaper than consumer)
+- `credit-refinance` — Refinancing existing debt, base 15.9% (see POST /credit/refinance)
 - `mortgage` — Mortgage, from 16%, up to 30 years, min 20% down payment
 - Investments (each has `subtype`, `risk_level` 1–5, `expected_return_pct`, `min_investment_rub`):
   - `inv-ofz` — Government bonds (OFZ), risk 1, ~13%
@@ -29,6 +31,7 @@ Current products:
   - `inv-equity-fund` — Equity fund, risk 3, ~19%
   - `inv-bluechip` — Blue-chip stocks, risk 4, ~22%
   - `inv-growth` — Growth stocks, risk 5, ~28%
+  - `inv-gold` — Gold fund (FXGD), risk 2, ~11%
 
 ### GET /
 HTML с каталогом продуктов. Для человека, не для других блоков.
@@ -51,8 +54,14 @@ Returns:
   "customer_name": "Анна Козлова"
 }
 ```
-`approved` is `true` or `false`. `reasons` lists why a decision was declined (empty on approval).
+`approved` is `true` or `false`. `reasons` lists why a decision was declined (empty on approval). On approval, `rate_pct` is the **personalised, risk-based** rate (safer customers pay less, riskier more) and `base_rate_pct` is the list rate.
 HTTP 404 if client or product is not found. HTTP 400 if product is not a credit product.
+
+### POST /credit/refinance
+
+Refinancing offer — takes over the customer's existing debt at a lower, risk-based rate and shows the saving. Request body: `{ "client_id": "<string>", "current_balance_rub": <number>, "current_rate_pct": <number>, "term_months": <int, default 36> }`.
+
+Returns `{approved, beneficial, current_rate_pct, new_rate_pct, balance_rub, term_months, old_monthly_payment_rub, new_monthly_payment_rub, monthly_saving_rub, total_saving_rub, reasons, customer_name}`. `beneficial` is true when the new rate genuinely lowers the payment. Declined (`approved: false`) for overdue history, risk > 0.65, or income below 30,000.
 
 ### GET /clients/{client_id}/pre-approved
 
@@ -87,6 +96,8 @@ Returns `{client_id, name, segment, total, offers: [...]}`. Each offer is backen
 ```
 
 `cib.available` is false only for codes that belong to backend (`premium_upgrade`, `cashback_redeem` → `handled_by: "backend"`), with a `note` explaining. The app shows the offer and routes the customer to `cib.action`.
+
+Where the customer is pre-approved, the `cib` block also carries a `pre_approved` object (`headline` plus `amount_rub`/`limit_rub`/`max_loan_rub` and `rate_pct`) — so loan, credit-card and mortgage suggestions can show "you're already approved for X" right in the feed.
 
 ### POST /mortgage/decide
 
