@@ -613,4 +613,60 @@
     .side-btn.buy.active  { background: var(--good); color: #fff; border-color: var(--good); }
     .side-btn.sell.active { background: var(--bad);  color: #fff; border-color: var(--bad); }
     .trade-est { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 4px 0 12px; min-height: 16px; }
+
+    /* ---- Mortgage approval card ---- */
+    .mortgage-approved {
+      margin-top: 14px;
+      background: linear-gradient(135deg, #1d3724 0%, #2f5a3c 55%, #1a3325 100%);
+      color: #f4faf5;
+      border-radius: 20px;
+      padding: 24px 22px 18px;
+      text-align: center;
+      box-shadow: 0 16px 36px rgba(31,59,41,0.32);
+      animation: fadeUp 280ms ease;
+    }
+    .mortgage-approved .ma-status {
+      display: inline-block;
+      background: rgba(255,255,255,0.14);
+      color: #d8f5e0;
+      font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 5px 14px; border-radius: 20px;
+      margin-bottom: 18px;
+    }
+    .mortgage-approved .ma-pay-label {
+      font-size: 11px; opacity: 0.65; font-weight: 600;
+      letter-spacing: 0.14em; text-transform: uppercase;
+    }
+    .mortgage-approved .ma-pay-value {
+      font-size: 40px; font-weight: 800; letter-spacing: -0.02em;
+      margin: 6px 0 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .mortgage-approved .ma-pay-sub {
+      font-size: 13px; opacity: 0.85; font-weight: 600;
+      margin-bottom: 18px;
+    }
+    .mortgage-approved .ma-details {
+      background: rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 12px 14px;
+      display: flex; flex-direction: column; gap: 8px;
+      text-align: left;
+    }
+    .mortgage-approved .ma-details > div {
+      display: flex; justify-content: space-between;
+      font-size: 13px;
+    }
+    .mortgage-approved .ma-details span { opacity: 0.7; }
+    .mortgage-approved .ma-details b { font-weight: 700; }
+    .mortgage-explain {
+      margin-top: 12px; padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.12);
+      font-size: 12px; line-height: 1.5; opacity: 0.9;
+    }
+    .decision-box.declined .mortgage-explain {
+      border-top-color: rgba(192,73,47,0.25);
+      color: var(--bad);
+    }
   

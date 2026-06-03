@@ -1047,22 +1047,33 @@
           });
           const res = await r.json();
           if (r.ok && res.status === "approved") {
-            resBox.innerHTML = `<div class="decision-box approved">
-              <div class="decision-icon">&#10003;</div>
-              <div class="decision-status">${t("approved_mortgage")}</div>
-              <div class="decision-detail">
-                ${t("loan_amount")}: ${fmt.format(res.loan_amount_rub)} ₽ · ${res.rate_pct}%<br/>
-                ${t("monthly_payment")}: ${fmt.format(Math.round(res.monthly_payment_rub))} ₽ · ${res.term_years} ${t("years_short")}
-              </div>
-            </div>`;
-            setTimeout(() => loadMortgage(d.client_id), 600);
+            const explanation = res.explanation
+              ? `<div class="mortgage-explain">${res.explanation}</div>` : "";
+            resBox.innerHTML = `
+              <div class="mortgage-approved">
+                <div class="ma-status">${t("approved_mortgage")}</div>
+                <div class="ma-pay-label">${t("monthly_payment")}</div>
+                <div class="ma-pay-value">${fmt.format(Math.round(res.monthly_payment_rub))} ₽</div>
+                <div class="ma-pay-sub">${res.term_years} ${t("years_short")} · ${res.rate_pct}%</div>
+                <div class="ma-details">
+                  <div><span>${t("loan_amount")}</span><b>${fmt.format(res.loan_amount_rub)} ₽</b></div>
+                  <div><span>${t("total_to_pay")}</span><b>${fmt.format(Math.round(res.total_to_pay_rub || 0))} ₽</b></div>
+                  ${res.ltv_pct != null ? `<div><span>${t("ltv_label")}</span><b>${res.ltv_pct}%</b></div>` : ""}
+                  ${res.dti_pct != null ? `<div><span>${t("dti_label")}</span><b>${res.dti_pct}%</b></div>` : ""}
+                </div>
+                ${explanation}
+              </div>`;
+            setTimeout(() => loadMortgage(d.client_id), 800);
           } else if (r.ok && res.status === "declined") {
             const reasons = (res.reasons || []).map(x => `<li>${x}</li>`).join("");
+            const explanation = res.explanation
+              ? `<div class="mortgage-explain" style="text-align:center">${res.explanation}</div>` : "";
             resBox.innerHTML = `<div class="decision-box declined">
               <div class="decision-icon">&#10007;</div>
               <div class="decision-status">${t("declined_mortgage")}</div>
               <div class="decision-detail">
-                <ul style="margin:8px 0 0; padding-left:18px; text-align:left">${reasons}</ul>
+                ${reasons ? `<ul style="margin:8px 0 0; padding-left:18px; text-align:left">${reasons}</ul>` : ""}
+                ${explanation}
               </div>
             </div>`;
           } else {

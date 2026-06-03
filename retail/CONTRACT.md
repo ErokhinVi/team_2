@@ -113,7 +113,7 @@ amount_rub, max_amount_rub, reason, source}`.
 ## Кого я зову у соседей
 
 - backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/mortgages` (when shipped), `POST /clients/{id}/mortgages` (when shipped — debits down payment, stores account)
-- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/quote` (when shipped — payload `{client_id, property_price_rub, down_payment_rub, term_years}`, returns approve/decline + rate + monthly payment + LTV + DTI), `POST /mortgage/apply` (when shipped — same payload, commits the decision)
+- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide` (payload `{client_id, property_price_rub, down_payment_rub, term_years}`, returns approve/decline + loan amount + rate + monthly payment + LTV + explanation; CIB writes the mortgage to the customer profile on approval)
 
 ## Где работает блок локально
 

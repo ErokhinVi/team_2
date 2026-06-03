@@ -118,120 +118,96 @@ async def mortgage_info(client_id: str) -> dict:
     }
 
 
-@router.post("/api/mortgage/quote")
-async def mortgage_quote(payload: dict) -> dict:
-    """Live quote — no commitment. CIB decision if available, else local maths."""
-    client_id = payload.get("client_id")
-    property_price = float(payload.get("property_price_rub", 0) or 0)
-    down_payment = float(payload.get("down_payment_rub", 0) or 0)
-    term_years = int(payload.get("term_years", 20) or 0)
-
-    if not client_id or property_price <= 0 or term_years <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="client_id, positive property_price_rub and term_years required",
-        )
-
-    customer = await backend_get(f"/clients/{client_id}")
-
-    cib = await try_post(CIB_URL, "/mortgage/quote", {
+async def _decide(client_id: str, property_price: float,
+                  down_payment: float, term_years: int) -> dict:
+    """Single source of truth: call Gert's /mortgage/decide; fall back locally."""
+    cib = await try_post(CIB_URL, "/mortgage/decide", {
         "client_id": client_id,
         "property_price_rub": property_price,
         "down_payment_rub": down_payment,
         "term_years": term_years,
     }, timeout=5.0)
     if cib:
-        cib.setdefault("source", "cib")
-        cib.setdefault("client_id", client_id)
-        cib.setdefault("term_years", term_years)
+        # Total cost is convenient for the UI even though CIB doesn't return it.
+        monthly = cib.get("monthly_payment_rub", 0) or 0
+        cib["total_to_pay_rub"] = round(monthly * term_years * 12, 2)
+        cib["source"] = "cib"
         return cib
 
+    # Fallback when CIB is unreachable
+    customer = await backend_get(f"/clients/{client_id}")
     q = _local_quote(customer, property_price, down_payment, term_years)
     q["client_id"] = client_id
     q["property_price_rub"] = property_price
     q["down_payment_rub"] = down_payment
+    q["explanation"] = q["explanation"] if "explanation" in q else (
+        "; ".join(q.get("reasons", [])) or "Approved"
+    )
     return q
 
 
-@router.post("/api/mortgage/apply")
-async def mortgage_apply(payload: dict) -> dict:
-    """Submit a mortgage application: decision via CIB, storage via backend."""
-    client_id = payload.get("client_id")
-    property_price = float(payload.get("property_price_rub", 0) or 0)
-    down_payment = float(payload.get("down_payment_rub", 0) or 0)
-    term_years = int(payload.get("term_years", 20) or 0)
-
+def _validate(client_id: str, property_price: float, term_years: int) -> None:
     if not client_id or property_price <= 0 or term_years <= 0:
         raise HTTPException(
             status_code=400,
             detail="client_id, positive property_price_rub and term_years required",
         )
 
-    customer = await backend_get(f"/clients/{client_id}")
 
-    # 1. Decision (cib if available, else local quote)
-    cib = await try_post(CIB_URL, "/mortgage/apply", {
-        "client_id": client_id,
-        "property_price_rub": property_price,
-        "down_payment_rub": down_payment,
-        "term_years": term_years,
-    }, timeout=5.0)
-    if cib:
-        decision = cib
-        decision.setdefault("source", "cib")
-    else:
-        decision = _local_quote(customer, property_price, down_payment, term_years)
-        decision["client_id"] = client_id
-        decision["property_price_rub"] = property_price
-        decision["down_payment_rub"] = down_payment
+@router.post("/api/mortgage/quote")
+async def mortgage_quote(payload: dict) -> dict:
+    """Live quote — no commitment. Calls CIB POST /mortgage/decide."""
+    client_id = payload.get("client_id")
+    property_price = float(payload.get("property_price_rub", 0) or 0)
+    down_payment = float(payload.get("down_payment_rub", 0) or 0)
+    term_years = int(payload.get("term_years", 20) or 0)
+    _validate(client_id, property_price, term_years)
+    return await _decide(client_id, property_price, down_payment, term_years)
+
+
+@router.post("/api/mortgage/apply")
+async def mortgage_apply(payload: dict) -> dict:
+    """Submit a mortgage application via CIB /mortgage/decide.
+
+    On approval, CIB itself records the mortgage on the customer's profile
+    (backend POST /clients/{id}/products), so retail doesn't store anything.
+    """
+    client_id = payload.get("client_id")
+    property_price = float(payload.get("property_price_rub", 0) or 0)
+    down_payment = float(payload.get("down_payment_rub", 0) or 0)
+    term_years = int(payload.get("term_years", 20) or 0)
+    _validate(client_id, property_price, term_years)
+
+    decision = await _decide(client_id, property_price, down_payment, term_years)
 
     if not decision.get("approved"):
         return {
             "status": "declined",
             "client_id": client_id,
             "reasons": decision.get("reasons", []),
+            "explanation": decision.get("explanation", ""),
             "rate_pct": decision.get("rate_pct"),
             "loan_amount_rub": decision.get("loan_amount_rub"),
             "monthly_payment_rub": decision.get("monthly_payment_rub"),
-            "dti_pct": decision.get("dti_pct"),
+            "term_years": decision.get("term_years", term_years),
             "ltv_pct": decision.get("ltv_pct"),
+            "dti_pct": decision.get("dti_pct"),
             "source": decision.get("source", "retail-heuristic"),
-        }
-
-    # 2. Persist on backend if it offers the endpoint
-    storage = await try_post(BACKEND_URL, f"/clients/{client_id}/mortgages", {
-        "property_price_rub": property_price,
-        "down_payment_rub": down_payment,
-        "loan_amount_rub": decision.get("loan_amount_rub"),
-        "rate_pct": decision.get("rate_pct"),
-        "term_years": term_years,
-        "monthly_payment_rub": decision.get("monthly_payment_rub"),
-    })
-    if storage:
-        return {
-            "status": "approved",
-            "client_id": client_id,
-            "mortgage_id": storage.get("mortgage_id") or storage.get("id"),
-            "loan_amount_rub": decision.get("loan_amount_rub"),
-            "rate_pct": decision.get("rate_pct"),
-            "term_years": term_years,
-            "monthly_payment_rub": decision.get("monthly_payment_rub"),
-            "total_to_pay_rub": decision.get("total_to_pay_rub"),
-            "ltv_pct": decision.get("ltv_pct"),
-            "dti_pct": decision.get("dti_pct"),
-            "source": "cib+backend" if decision.get("source") == "cib" else "backend",
         }
 
     return {
         "status": "approved",
         "client_id": client_id,
+        "product_id": decision.get("product_id", "mortgage"),
         "loan_amount_rub": decision.get("loan_amount_rub"),
         "rate_pct": decision.get("rate_pct"),
-        "term_years": term_years,
+        "term_years": decision.get("term_years", term_years),
         "monthly_payment_rub": decision.get("monthly_payment_rub"),
         "total_to_pay_rub": decision.get("total_to_pay_rub"),
+        "down_payment_pct": decision.get("down_payment_pct"),
         "ltv_pct": decision.get("ltv_pct"),
         "dti_pct": decision.get("dti_pct"),
-        "message": "Approved (storage pending — backend mortgage endpoint not yet available)",
+        "explanation": decision.get("explanation", ""),
+        "customer_name": decision.get("customer_name", ""),
         "source": decision.get("source", "retail-heuristic"),
     }
