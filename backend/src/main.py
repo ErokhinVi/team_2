@@ -59,6 +59,9 @@ _instruments: dict[str, dict[str, Any]] = {
     "YNDX": {"symbol": "YNDX", "name": "Яндекс, акция", "price_rub": 4115},
     "OFZ26": {"symbol": "OFZ26", "name": "ОФЗ, облигация", "price_rub": 985},
     "FXGD": {"symbol": "FXGD", "name": "Фонд на золото", "price_rub": 152},
+    "FXCB": {"symbol": "FXCB", "name": "Фонд корпоративных облигаций", "price_rub": 1040},
+    "FXIM": {"symbol": "FXIM", "name": "Индексный ETF на индекс Мосбиржи", "price_rub": 185},
+    "FXEQ": {"symbol": "FXEQ", "name": "Фонд акций (широкий рынок)", "price_rub": 2450},
 }
 # Портфель клиента: symbol -> {symbol, qty, avg_cost_rub}.
 _holdings_by_client: dict[str, dict[str, dict[str, Any]]] = {}
