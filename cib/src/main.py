@@ -663,16 +663,20 @@ async def investment_order_plan(req: SuitabilityRequest) -> dict:
     order: dict = {"side": "buy", "symbol": symbol}
     note = None
     executable = False
+    available_symbols: list[str] = []
 
     instruments = await _fetch_instruments()
     if not instruments:
         note = "backend catalogue unreachable — could not price the order"
     else:
+        available_symbols = [i.get("symbol") for i in instruments if i.get("symbol")]
         match = next((i for i in instruments if i.get("symbol") == symbol), None)
         if match is None:
+            # The provisional symbol guess didn't match. Surface the real
+            # catalogue so the correct code is visible and the map can be fixed.
             note = (
-                f"symbol '{symbol}' not found in backend catalogue — confirm the "
-                f"mapping for product '{product['id']}'"
+                f"symbol '{symbol}' not found in backend catalogue — set "
+                f"INVESTMENT_SYMBOL_MAP['{product['id']}'] to one of available_symbols"
             )
         else:
             price = match["price_rub"]
@@ -698,6 +702,7 @@ async def investment_order_plan(req: SuitabilityRequest) -> dict:
         "executable": executable,
         "execute_via": f"POST {BACKEND_URL}/clients/{req.client_id}/orders",
         "note": note,
+        "available_symbols": available_symbols,
         "customer_name": customer.get("name"),
     }
 

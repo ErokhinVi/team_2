@@ -98,7 +98,7 @@ Runs the suitability check; if suitable, maps the product to a backend instrumen
 
 Retail posts the returned `order` to backend `POST /clients/{client_id}/orders`. If the product is unsuitable, `suitable: false` and `order: null`. If the symbol mapping isn't yet confirmed against backend's catalogue, `executable: false` with an explanatory `note` (no wrong order is produced).
 
-**Note:** the symbol map (CIB product → backend instrument) is provisional and must be confirmed against backend's live `GET /instruments` catalogue.
+**Note:** the symbol map (CIB product → backend instrument) is provisional. If a guess doesn't match, the response sets `executable: false`, a `note`, and lists the real `available_symbols` from backend's live catalogue — so the correct code is visible and the map is fixed in one line.
 
 ### POST /deposit/open
 
