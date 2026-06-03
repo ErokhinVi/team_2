@@ -135,52 +135,28 @@
     const ICON = (paths) =>
       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
       `stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
-    // Tabs are grouped by domain. Bottom nav shows groups; a sub-tab strip
-    // appears at the top of multi-child groups. Single-child groups skip it.
-    const TAB_GROUPS = [
-      { key: "home",   i18n: "home_tab",
-        icon: ICON('<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.7V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.7"/>'),
-        children: [{ pane: "transfers", i18n: "transfers_tab" }] },
-      { key: "cards",  i18n: "cards_tab",
-        icon: ICON('<rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.5h19"/><path d="M6.5 14.5h4"/>'),
-        children: [
-          { pane: "card",       i18n: "debit_short" },
-          { pane: "creditcard", i18n: "credit_short" },
-        ] },
-      { key: "wealth", i18n: "wealth_tab",
-        icon: ICON('<path d="M3 18 8 12.5l4 4L21 7"/><path d="M21 12V7h-5"/>'),
-        children: [
-          { pane: "savings",   i18n: "savings_tab" },
-          { pane: "invest",    i18n: "invest_tab" },
-          { pane: "brokerage", i18n: "brokerage_tab" },
-        ] },
-      { key: "borrow", i18n: "borrow_tab",
-        icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>'),
-        children: [
-          { pane: "loans",    i18n: "loans_tab" },
-          { pane: "carloan",  i18n: "carloan_tab" },
-          { pane: "mortgage", i18n: "mortgage_tab" },
-        ] },
-      { key: "friends", i18n: "friends_tab",
-        icon: ICON('<circle cx="8.5" cy="9" r="3"/><path d="M3 19.5c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/><circle cx="17" cy="8" r="2.2"/><path d="M14.6 13.6c.7-.4 1.5-.6 2.4-.6 1.9 0 3.3 1 4 3"/>'),
-        children: [{ pane: "invite", i18n: "invite_tab" }] },
+    const TAB_DEFS = [
+      { key: "transfers",  i18n: "transfers_tab",
+        icon: ICON('<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.7V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.7"/>') },
+      { key: "card",       i18n: "card_tab",
+        icon: ICON('<rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.5h19"/>') },
+      { key: "creditcard", i18n: "cc_tab",
+        icon: ICON('<path d="M12 3 21 9l-9 12L3 9z"/><path d="M3 9h18"/>') },
+      { key: "savings",    i18n: "savings_tab",
+        icon: ICON('<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="12" cy="12" r="3.3"/><path d="M12 8.7V6.5M12 17.5v-2.2"/>') },
+      { key: "invest",     i18n: "invest_tab",
+        icon: ICON('<path d="M3 17l6-6 4 4 7-7"/><path d="M17 8h4v4"/>') },
+      { key: "brokerage",  i18n: "brokerage_tab",
+        icon: ICON('<path d="M4 20V11M9 20V5M14 20V14M19 20V8"/>') },
+      { key: "loans",      i18n: "loans_tab",
+        icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>') },
+      { key: "carloan",    i18n: "carloan_tab",
+        icon: ICON('<path d="M5 13l1.6-4.5C6.8 8 7.3 7.5 8 7.5h8c.7 0 1.2.5 1.4 1L19 13"/><path d="M3.8 13h16.4v4.5H3.8z"/><circle cx="7.5" cy="17.5" r="1.6"/><circle cx="16.5" cy="17.5" r="1.6"/>') },
+      { key: "mortgage",   i18n: "mortgage_tab",
+        icon: ICON('<path d="M3 11 12 4l9 7"/><path d="M5 10.5V20h5v-5h4v5h5v-9.5"/><circle cx="14.5" cy="13" r="1"/>') },
+      { key: "invite",     i18n: "invite_tab",
+        icon: ICON('<circle cx="8.5" cy="9" r="3"/><path d="M3 19.5c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/><circle cx="17" cy="8" r="2.2"/><path d="M14.6 13.6c.7-.4 1.5-.6 2.4-.6 1.9 0 3.3 1 4 3"/>') },
     ];
-
-    // Per-pane loaders: invoked every time the pane becomes active so its
-    // content stays fresh against the currently-selected customer.
-    const PANE_LOADERS = {
-      card:       (cid) => loadCardInfo(cid),
-      creditcard: (cid) => loadCreditCard(cid),
-      savings:    (cid) => loadSavings(cid),
-      invest:     (cid) => loadInvest(cid),
-      brokerage:  (cid) => loadBrokerage(cid),
-      mortgage:   (cid) => loadMortgage(cid),
-      carloan:    (cid) => loadCarLoan(cid),
-      invite:     (cid) => loadInvite(cid),
-    };
-
-    // Remembers the last sub-tab opened in each group so jumping back feels natural.
-    const lastSubPane = {};
 
     // ---- i18n ----
     const i18n = {
@@ -682,61 +658,36 @@
     const offersContainer = document.getElementById("offers-container");
     const inviteContainer = document.getElementById("invite-container");
 
-    // Helper: jump to a pane (used by offer CTAs and other deep links).
-    function switchTab(paneKey) {
-      const group = TAB_GROUPS.find(g => g.children.some(c => c.pane === paneKey));
-      if (group) activateGroup(group.key, paneKey);
+    // Helper: simulate a tap on a tab (used by offer CTAs and other deep links)
+    function switchTab(key) {
+      const btn = document.querySelector(`.tab[data-tab="${key}"]`);
+      if (btn) btn.click();
     }
 
-    // ---- Bottom nav built from TAB_GROUPS ----
-    document.querySelector(".tabs").innerHTML = TAB_GROUPS.map((g, i) =>
-      `<button class="tab${i === 0 ? " active" : ""}" data-group="${g.key}">
-         <span class="tab-ic">${g.icon}</span>
-         <span class="tab-lb" data-i18n="${g.i18n}">${g.key}</span>
+    // ---- Tabs (built from TAB_DEFS) ----
+    document.querySelector(".tabs").innerHTML = TAB_DEFS.map((tdef, i) =>
+      `<button class="tab${i === 0 ? " active" : ""}" data-tab="${tdef.key}">
+         <span class="tab-ic">${tdef.icon}</span>
+         <span class="tab-lb" data-i18n="${tdef.i18n}">${tdef.key}</span>
        </button>`).join("");
 
-    function activateSubPane(group, paneKey) {
-      lastSubPane[group.key] = paneKey;
-      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("show"));
-      const pane = document.querySelector(`[data-pane="${paneKey}"]`);
-      if (pane) pane.classList.add("show");
-      document.querySelectorAll(".sub-tab").forEach(b =>
-        b.classList.toggle("active", b.dataset.pane === paneKey));
-      const opt = sel.selectedOptions[0];
-      const loader = PANE_LOADERS[paneKey];
-      if (opt && loader) loader(opt.value);
-    }
-
-    function activateGroup(groupKey, paneOverride) {
-      const group = TAB_GROUPS.find(g => g.key === groupKey);
-      if (!group) return;
-      document.querySelectorAll(".tabs .tab").forEach(b =>
-        b.classList.toggle("active", b.dataset.group === groupKey));
-
-      const strip = document.getElementById("sub-tabs");
-      if (group.children.length > 1) {
-        strip.style.display = "flex";
-        strip.innerHTML = group.children.map(c =>
-          `<button class="sub-tab" data-pane="${c.pane}">
-             <span data-i18n="${c.i18n}">${c.pane}</span>
-           </button>`).join("");
-        strip.querySelectorAll(".sub-tab").forEach(btn => {
-          btn.addEventListener("click", () => activateSubPane(group, btn.dataset.pane));
-        });
-      } else {
-        strip.style.display = "none";
-        strip.innerHTML = "";
-      }
-
-      const target = paneOverride
-        || lastSubPane[group.key]
-        || group.children[0].pane;
-      activateSubPane(group, target);
-      applyLang();
-    }
-
-    document.querySelectorAll(".tabs .tab").forEach(btn => {
-      btn.addEventListener("click", () => activateGroup(btn.dataset.group));
+    document.querySelectorAll(".tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("show"));
+        btn.classList.add("active");
+        const pane = document.querySelector(`[data-pane="${btn.dataset.tab}"]`);
+        if (pane) pane.classList.add("show");
+        const opt = sel.selectedOptions[0];
+        if (opt && btn.dataset.tab === "card") loadCardInfo(opt.value);
+        if (opt && btn.dataset.tab === "creditcard") loadCreditCard(opt.value);
+        if (opt && btn.dataset.tab === "savings") loadSavings(opt.value);
+        if (opt && btn.dataset.tab === "invest") loadInvest(opt.value);
+        if (opt && btn.dataset.tab === "brokerage") loadBrokerage(opt.value);
+        if (opt && btn.dataset.tab === "mortgage") loadMortgage(opt.value);
+        if (opt && btn.dataset.tab === "carloan") loadCarLoan(opt.value);
+        if (opt && btn.dataset.tab === "invite") loadInvite(opt.value);
+      });
     });
 
     // ---- load clients ----
@@ -2331,7 +2282,6 @@
 
     loadClients();
     loadProducts();
-    activateGroup("home");
     applyLang();
   })();
   
