@@ -285,10 +285,17 @@ async def card_activate(req: ActivateRequest) -> dict:
     segment = customer.get("segment", "mass")
     rates = CASHBACK_RATES.get(segment, DEFAULT_CASHBACK)
 
+    # Record the holding on the customer's profile so it actually sticks.
+    # Best-effort: a transient failure shouldn't block the activation.
+    recorded = await _record_product(
+        req.client_id, req.product_id, {"cashback_rates_pct": rates, "segment": segment}
+    )
+
     return {
         "client_id": req.client_id,
         "product_id": req.product_id,
         "activated": True,
+        "recorded": recorded,
         "customer_name": customer.get("name"),
         "segment": segment,
         "cashback_rates_pct": rates,
@@ -497,6 +504,22 @@ async def _fetch_customer(client_id: str) -> dict:
     if resp.status_code != 200:
         raise HTTPException(status_code=502, detail="Backend unavailable")
     return resp.json()
+
+
+async def _record_product(client_id: str, product: str, details: dict | None = None) -> bool:
+    """Record a product onto the customer's profile in backend. Best-effort:
+    returns True if backend accepted it, False otherwise (never raises)."""
+    payload = {"product": product, "source": "cib"}
+    if details:
+        payload["details"] = details
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                f"{BACKEND_URL}/clients/{client_id}/products", json=payload
+            )
+        return resp.status_code in (200, 201)
+    except httpx.HTTPError:
+        return False
 
 
 async def _fetch_instruments() -> list[dict]:

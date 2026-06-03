@@ -174,6 +174,8 @@ Currently supports `"card-debit-cashback"`. Returns personalised cashback rates 
 
 Rates by segment — mass: 2/1.5/0.5%, mass_affluent: 3/2/1%, premium: 5/3/1.5%, private: 7/5/2%.
 
+On activation the card is also recorded on the customer's profile via backend `POST /clients/{id}/products`. The response includes `recorded` (true/false) — best-effort, so a transient backend hiccup won't block the activation itself.
+
 ## Кого я зову у соседей
 
 - backend: `GET /clients/{client_id}` — full customer card (income, risk score, overdue history)
