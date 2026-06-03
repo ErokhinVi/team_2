@@ -224,3 +224,125 @@ async def card_info(client_id: str) -> dict:
         "rates": rates,
         "rates_source": rates_source,
     }
+
+
+# ---- Credit card ----
+
+@app.get("/api/credit-card/{client_id}")
+async def credit_card_info(client_id: str) -> dict:
+    """Credit card summary for a customer.
+
+    Tries backend GET /credit-card/{client_id} for real credit card data.
+    If backend doesn't have that endpoint yet, builds a simulated credit
+    card view from the customer profile (income-based limit estimate).
+    Also tries CIB POST /credit/decide with a credit-card product to check
+    eligibility.
+    """
+    customer = await _backend_get(f"/clients/{client_id}")
+
+    # Try real credit card data from backend
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{BACKEND_URL}/credit-card/{client_id}")
+        if r.status_code == 200:
+            cc = r.json()
+            cc["source"] = "backend"
+            cc["customer_name"] = customer.get("name", "")
+            return cc
+    except httpx.HTTPError:
+        pass
+
+    # Fallback: simulate credit card from customer profile
+    income = customer.get("income_rub", 0)
+    has_overdue = customer.get("has_overdue_history", False)
+
+    # Check eligibility via CIB
+    eligible = True
+    cib_explanation = ""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(
+                f"{CIB_URL}/credit/decide",
+                json={"client_id": client_id, "product_id": "credit-card"},
+            )
+        if r.status_code == 200:
+            cib = r.json()
+            eligible = cib.get("approved", False)
+            cib_explanation = cib.get("explanation", "")
+    except httpx.HTTPError:
+        # CIB not reachable — use local heuristic
+        eligible = income >= 25_000 and not has_overdue
+
+    # Simulated credit card parameters
+    credit_limit = 0
+    if eligible:
+        if income >= 150_000:
+            credit_limit = 500_000
+        elif income >= 80_000:
+            credit_limit = 300_000
+        elif income >= 50_000:
+            credit_limit = 150_000
+        elif income >= 25_000:
+            credit_limit = 75_000
+
+    # Simulate some usage based on existing transactions
+    tx_data = await _backend_get(f"/transactions/{client_id}", {"limit": "20"})
+    txs = tx_data.get("items", [])
+    card_purchases = [tx for tx in txs if tx.get("type") == "card_purchase"]
+    total_spent = sum(abs(tx.get("amount_rub", 0)) for tx in card_purchases[:5])
+    # Cap simulated spending at 40% of limit
+    balance_owed = min(total_spent, int(credit_limit * 0.4)) if credit_limit else 0
+    available = credit_limit - balance_owed
+    min_payment = max(int(balance_owed * 0.05), 1000) if balance_owed > 0 else 0
+
+    card_suffix = str(abs(hash(client_id + "cc")))[-4:]
+
+    return {
+        "client_id": client_id,
+        "customer_name": customer.get("name", ""),
+        "eligible": eligible,
+        "explanation": cib_explanation or (
+            "Approved based on income and history" if eligible
+            else "Not eligible: insufficient income or overdue history"
+        ),
+        "card_number_masked": f"**** **** **** {card_suffix}",
+        "credit_limit_rub": credit_limit,
+        "balance_owed_rub": balance_owed,
+        "available_rub": available,
+        "min_payment_rub": min_payment,
+        "interest_rate_pct": 24.9,
+        "grace_period_days": 55,
+        "source": "retail-simulated",
+    }
+
+
+@app.post("/api/credit-card-payment")
+async def credit_card_payment(payload: dict) -> dict:
+    """Make a payment toward the credit card balance.
+
+    Tries backend POST /credit-card-payment. If not available, returns
+    a simulated confirmation.
+    """
+    client_id = payload.get("client_id")
+    amount = payload.get("amount_rub", 0)
+
+    if not client_id or amount <= 0:
+        raise HTTPException(status_code=400, detail="client_id and positive amount_rub required")
+
+    # Try real endpoint on backend
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{BACKEND_URL}/credit-card-payment", json=payload)
+        if r.status_code == 200:
+            return r.json()
+    except httpx.HTTPError:
+        pass
+
+    # Fallback: simulated payment confirmation
+    return {
+        "status": "ok",
+        "client_id": client_id,
+        "amount_rub": amount,
+        "message": "Payment recorded",
+        "source": "retail-simulated",
+    }

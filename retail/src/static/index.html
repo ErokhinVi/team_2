@@ -93,9 +93,9 @@
     }
     .tabs button {
       flex: 1;
-      padding: 14px 8px;
+      padding: 14px 4px;
       background: transparent; border: 0;
-      font-family: inherit; font-size: 13px; font-weight: 500;
+      font-family: inherit; font-size: 12px; font-weight: 500;
       color: var(--text-2);
       cursor: pointer; position: relative;
       transition: color 160ms;
@@ -103,7 +103,7 @@
     .tabs button.active { color: var(--text); }
     .tabs button.active::after {
       content: ""; position: absolute;
-      left: 24%; right: 24%; bottom: 0;
+      left: 18%; right: 18%; bottom: 0;
       height: 2px; background: var(--text);
     }
 
@@ -209,33 +209,26 @@
     }
 
     .loan-result { margin-top: 18px; }
-    .loan-result .decision-box {
+    .loan-result .decision-box, .cc-decision-box {
       padding: 18px; border-radius: 10px; text-align: center;
     }
-    .loan-result .decision-box.approved {
+    .loan-result .decision-box.approved, .cc-decision-box.approved {
       background: #e8f0e2; color: var(--good);
     }
-    .loan-result .decision-box.declined {
+    .loan-result .decision-box.declined, .cc-decision-box.declined {
       background: #f4dfd6; color: var(--bad);
     }
-    .loan-result .decision-box .decision-icon {
-      font-size: 32px; margin-bottom: 6px;
-    }
-    .loan-result .decision-box .decision-status {
-      font-size: 16px; font-weight: 600; margin-bottom: 4px;
-    }
-    .loan-result .decision-box .decision-detail {
-      font-size: 13px; opacity: 0.85;
-    }
+    .decision-icon { font-size: 32px; margin-bottom: 6px; }
+    .decision-status { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .decision-detail { font-size: 13px; opacity: 0.85; }
 
     .products-loading {
       text-align: center; padding: 40px 0;
       color: var(--muted); font-size: 13px;
     }
 
-    /* ---- Debit card visual ---- */
-    .debit-card {
-      background: linear-gradient(135deg, #1f1d18 0%, #3a362e 60%, #1f1d18 100%);
+    /* ---- Card visuals (shared between debit and credit) ---- */
+    .debit-card, .credit-card-visual {
       border-radius: 16px;
       padding: 24px 22px 20px;
       color: #f6f3ec;
@@ -243,54 +236,68 @@
       overflow: hidden;
       margin-bottom: 18px;
     }
-    .debit-card::before {
+    .debit-card {
+      background: linear-gradient(135deg, #1f1d18 0%, #3a362e 60%, #1f1d18 100%);
+    }
+    .credit-card-visual {
+      background: linear-gradient(135deg, #1a2744 0%, #2d4a7a 50%, #1a2744 100%);
+    }
+    .debit-card::before, .credit-card-visual::before {
       content: "";
       position: absolute;
       top: -30px; right: -30px;
       width: 120px; height: 120px;
-      background: var(--raiff);
       border-radius: 50%;
       opacity: 0.15;
     }
-    .debit-card .card-bank {
+    .debit-card::before { background: var(--raiff); }
+    .credit-card-visual::before { background: #7eb3ff; }
+    .card-bank {
       font-size: 11px; letter-spacing: 0.15em;
       text-transform: uppercase; opacity: 0.5;
       margin-bottom: 20px;
     }
-    .debit-card .card-number {
+    .card-number {
       font-size: 18px; font-weight: 400;
       letter-spacing: 0.12em;
       font-variant-numeric: tabular-nums;
       margin-bottom: 18px;
     }
-    .debit-card .card-bottom {
+    .card-bottom {
       display: flex; justify-content: space-between; align-items: flex-end;
     }
-    .debit-card .card-holder {
+    .card-holder {
       font-size: 12px; text-transform: uppercase;
       letter-spacing: 0.08em; opacity: 0.8;
     }
-    .debit-card .card-type {
+    .card-type {
       font-size: 11px; font-weight: 600;
-      background: var(--raiff); color: var(--text);
       padding: 3px 10px; border-radius: 8px;
     }
+    .debit-card .card-type {
+      background: var(--raiff); color: var(--text);
+    }
+    .credit-card-visual .card-type {
+      background: #7eb3ff; color: #1a2744;
+    }
 
-    .cashback-summary {
+    .cashback-summary, .cc-summary {
       display: flex; gap: 12px; margin-bottom: 18px;
     }
-    .cashback-box {
+    .cashback-box, .cc-box {
       flex: 1;
       background: var(--bg);
       border-radius: 10px;
       padding: 14px;
       text-align: center;
     }
-    .cashback-box .cb-value {
+    .cashback-box .cb-value, .cc-box .cc-value {
       font-size: 22px; font-weight: 600;
-      color: var(--good);
     }
-    .cashback-box .cb-label {
+    .cashback-box .cb-value { color: var(--good); }
+    .cc-box .cc-value { color: var(--text); }
+    .cc-box .cc-value.warn { color: var(--warn); }
+    .cashback-box .cb-label, .cc-box .cc-label {
       font-size: 11px; color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.08em;
@@ -311,6 +318,37 @@
     .cashback-tx-row .cb-tx-cashback {
       font-size: 13px; font-weight: 600; color: var(--good);
       text-align: right; white-space: nowrap;
+    }
+
+    /* ---- Credit card specifics ---- */
+    .cc-limit-bar {
+      background: var(--bg); border-radius: 8px;
+      height: 10px; margin-bottom: 18px;
+      overflow: hidden;
+    }
+    .cc-limit-bar .cc-used {
+      height: 100%; border-radius: 8px;
+      background: var(--warn);
+      transition: width 300ms;
+    }
+    .cc-limit-bar .cc-used.low { background: var(--good); }
+    .cc-limit-bar .cc-used.high { background: var(--bad); }
+
+    .cc-details {
+      display: flex; flex-direction: column; gap: 8px;
+      margin-bottom: 18px;
+    }
+    .cc-detail-row {
+      display: flex; justify-content: space-between;
+      font-size: 13px;
+    }
+    .cc-detail-row .cc-dl { color: var(--text-2); }
+    .cc-detail-row .cc-dv { font-weight: 500; }
+
+    .cc-not-eligible {
+      text-align: center; padding: 30px 0;
+      color: var(--muted); font-size: 14px;
+      line-height: 1.6;
     }
   </style>
 </head>
@@ -337,6 +375,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="transfers" data-i18n="transfers_tab">Переводы</button>
       <button class="tab" data-tab="card" data-i18n="card_tab">Карта</button>
+      <button class="tab" data-tab="creditcard" data-i18n="cc_tab">Кредитная</button>
       <button class="tab" data-tab="loans" data-i18n="loans_tab">Кредиты</button>
     </div>
 
@@ -355,15 +394,21 @@
         <button class="btn primary" type="submit" data-i18n="transfer_btn">Перевести</button>
       </form>
       <div id="transfer-result"></div>
-
       <div class="section-title" style="margin-top:24px" data-i18n="recent_ops">Последние операции</div>
       <div id="tx-list" class="tx-list"></div>
     </div>
 
-    <!-- ===== Card pane ===== -->
+    <!-- ===== Debit Card pane ===== -->
     <div class="tab-pane" data-pane="card">
       <div id="card-container">
         <div class="products-loading" data-i18n="loading_card">Загрузка карты...</div>
+      </div>
+    </div>
+
+    <!-- ===== Credit Card pane ===== -->
+    <div class="tab-pane" data-pane="creditcard">
+      <div id="cc-container">
+        <div class="products-loading" data-i18n="loading_cc">Загрузка кредитной карты...</div>
       </div>
     </div>
 
@@ -373,7 +418,6 @@
       <div id="product-list" class="product-cards">
         <div class="products-loading" data-i18n="loading_products">Загрузка продуктов...</div>
       </div>
-
       <div id="loan-apply-section" style="display:none; margin-top: 20px;">
         <div class="section-title" data-i18n="loan_amount_title">Сумма кредита</div>
         <form id="loan-form" autocomplete="off">
@@ -384,7 +428,6 @@
           <button class="btn primary" type="submit" data-i18n="apply_btn">Подать заявку</button>
         </form>
       </div>
-
       <div id="loan-result" class="loan-result"></div>
     </div>
   </div>
@@ -400,6 +443,7 @@
         profile:          "Профиль",
         transfers_tab:    "Переводы",
         card_tab:         "Карта",
+        cc_tab:           "Кредитная",
         loans_tab:        "Кредиты",
         transfer_title:   "Перевести",
         to_label:         "Кому",
@@ -439,17 +483,35 @@
         products_error:   "Не удалось загрузить продукты",
         loading_card:     "Загрузка карты...",
         card_error:       "Не удалось загрузить данные карты",
-        debit_card:       "ДЕБЕТОВАЯ КАРТА",
+        debit_card:       "ДЕБЕТОВАЯ",
         cashback_earned:  "Кешбэк",
         cashback_rate:    "Базовая ставка",
         cashback_history: "Кешбэк по операциям",
         no_cashback:      "Нет операций с кешбэком",
+        loading_cc:       "Загрузка кредитной карты...",
+        cc_error:         "Не удалось загрузить данные кредитной карты",
+        credit_card:      "КРЕДИТНАЯ",
+        cc_limit:         "Лимит",
+        cc_owed:          "Задолженность",
+        cc_available:     "Доступно",
+        cc_min_payment:   "Мин. платёж",
+        cc_interest:      "Процентная ставка",
+        cc_grace:         "Льготный период",
+        cc_days:          "дней",
+        cc_pay_title:     "Погасить задолженность",
+        cc_pay_amount:    "Сумма платежа, ₽",
+        cc_pay_btn:       "Оплатить",
+        cc_pay_success:   "Платёж принят",
+        cc_not_eligible:  "Кредитная карта пока недоступна для данного клиента.",
+        cc_fill_amount:   "Укажите сумму платежа",
+        cc_used_of:       "использовано из",
       },
       en: {
         balance_label:    "account balance",
         profile:          "Profile",
         transfers_tab:    "Transfers",
         card_tab:         "Card",
+        cc_tab:           "Credit",
         loans_tab:        "Loans",
         transfer_title:   "Send money",
         to_label:         "To",
@@ -489,11 +551,28 @@
         products_error:   "Could not load products",
         loading_card:     "Loading card...",
         card_error:       "Could not load card data",
-        debit_card:       "DEBIT CARD",
+        debit_card:       "DEBIT",
         cashback_earned:  "Cashback",
         cashback_rate:    "Base rate",
         cashback_history: "Cashback by transaction",
         no_cashback:      "No cashback transactions",
+        loading_cc:       "Loading credit card...",
+        cc_error:         "Could not load credit card data",
+        credit_card:      "CREDIT",
+        cc_limit:         "Limit",
+        cc_owed:          "Owed",
+        cc_available:     "Available",
+        cc_min_payment:   "Min. payment",
+        cc_interest:      "Interest rate",
+        cc_grace:         "Grace period",
+        cc_days:          "days",
+        cc_pay_title:     "Make a payment",
+        cc_pay_amount:    "Payment amount, ₽",
+        cc_pay_btn:       "Pay",
+        cc_pay_success:   "Payment accepted",
+        cc_not_eligible:  "Credit card is not available for this customer at the moment.",
+        cc_fill_amount:   "Please enter a payment amount",
+        cc_used_of:       "used of",
       }
     };
 
@@ -514,6 +593,7 @@
       if (opt) {
         loadTx(opt.value);
         loadCardInfo(opt.value);
+        loadCreditCard(opt.value);
       }
       if (productsData.length) renderProducts();
     }
@@ -534,6 +614,7 @@
     const loanApplySection = document.getElementById("loan-apply-section");
     const loanResult = document.getElementById("loan-result");
     const cardContainer = document.getElementById("card-container");
+    const ccContainer = document.getElementById("cc-container");
 
     // ---- tabs ----
     document.querySelectorAll(".tab").forEach(btn => {
@@ -542,11 +623,9 @@
         document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("show"));
         btn.classList.add("active");
         document.querySelector(`[data-pane="${btn.dataset.tab}"]`).classList.add("show");
-        // load card info when switching to card tab
-        if (btn.dataset.tab === "card") {
-          const opt = sel.selectedOptions[0];
-          if (opt) loadCardInfo(opt.value);
-        }
+        const opt = sel.selectedOptions[0];
+        if (opt && btn.dataset.tab === "card") loadCardInfo(opt.value);
+        if (opt && btn.dataset.tab === "creditcard") loadCreditCard(opt.value);
       });
     });
 
@@ -572,6 +651,7 @@
       topbarWho.textContent = opt.dataset.name;
       loadTx(opt.value);
       loadCardInfo(opt.value);
+      loadCreditCard(opt.value);
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
@@ -603,9 +683,7 @@
       }
     }
 
-    function typeLabel(tp) {
-      return t(tp) || tp;
-    }
+    function typeLabel(tp) { return t(tp) || tp; }
 
     function setBalance(newAmount) {
       balanceV.textContent = fmt.format(newAmount);
@@ -627,23 +705,16 @@
         transferResult.innerHTML = `<div class="alert error">${t("fill_fields")}</div>`;
         return;
       }
-
-      const payload = {
-        from_client_id: opt.value,
-        to: to,
-        amount_rub: amount,
-      };
+      const payload = { from_client_id: opt.value, to, amount_rub: amount };
       try {
         const r = await fetch("/api/transfer", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
+          method: "POST", headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload),
         });
         const d = await r.json();
         if (r.ok) {
           const kindLabel = d.kind === "internal"
-            ? `${d.to} (${t("bank_client")})`
-            : `${d.to} (${t("external")})`;
+            ? `${d.to} (${t("bank_client")})` : `${d.to} (${t("external")})`;
           transferResult.innerHTML =
             `<div class="alert ok">${t("sent")} ${fmt.format(d.amount_rub)} ₽<br/>
              ${t("recipient")}: ${kindLabel}</div>`;
@@ -651,12 +722,10 @@
           transferForm.reset();
           loadTx(opt.value);
         } else {
-          transferResult.innerHTML =
-            `<div class="alert error">${d.detail || t("error")}</div>`;
+          transferResult.innerHTML = `<div class="alert error">${d.detail || t("error")}</div>`;
         }
       } catch(e) {
-        transferResult.innerHTML =
-          `<div class="alert error">${t("server_down")}</div>`;
+        transferResult.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
       }
     });
 
@@ -665,8 +734,7 @@
       try {
         const r = await fetch(`/api/card-info/${clientId}`);
         if (!r.ok) throw new Error("failed");
-        const d = await r.json();
-        renderCard(d);
+        renderCard(await r.json());
       } catch(e) {
         cardContainer.innerHTML = `<div class="empty">${t("card_error")}</div>`;
       }
@@ -678,7 +746,6 @@
       if (cbTxs.length) {
         cbTxsHtml = cbTxs.map(tx => {
           const niceTs = tx.ts.replace("T", " ").slice(0, 16);
-          const ratePct = (tx.rate * 100).toFixed(1);
           return `<div class="cashback-tx-row">
             <div>
               <div class="cb-tx-desc">${typeLabel(tx.type)}</div>
@@ -691,7 +758,6 @@
       } else {
         cbTxsHtml = `<div class="empty">${t("no_cashback")}</div>`;
       }
-
       cardContainer.innerHTML = `
         <div class="debit-card">
           <div class="card-bank">Raiffeisen</div>
@@ -701,7 +767,6 @@
             <div class="card-type">${t("debit_card")}</div>
           </div>
         </div>
-
         <div class="cashback-summary">
           <div class="cashback-box">
             <div class="cb-value">${fmt.format(data.total_cashback_rub)} ₽</div>
@@ -712,10 +777,129 @@
             <div class="cb-label">${t("cashback_rate")}</div>
           </div>
         </div>
-
         <div class="section-title">${t("cashback_history")}</div>
-        <div class="tx-list">${cbTxsHtml}</div>
-      `;
+        <div class="tx-list">${cbTxsHtml}</div>`;
+    }
+
+    // ---- Credit card ----
+    let ccData = null;
+
+    async function loadCreditCard(clientId) {
+      try {
+        const r = await fetch(`/api/credit-card/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        ccData = await r.json();
+        renderCreditCard(ccData);
+      } catch(e) {
+        ccContainer.innerHTML = `<div class="empty">${t("cc_error")}</div>`;
+      }
+    }
+
+    function renderCreditCard(d) {
+      if (!d.eligible) {
+        ccContainer.innerHTML = `<div class="cc-not-eligible">
+          ${t("cc_not_eligible")}<br/>
+          <span style="font-size:12px;color:var(--muted)">${d.explanation || ""}</span>
+        </div>`;
+        return;
+      }
+
+      const usedPct = d.credit_limit_rub > 0
+        ? Math.round((d.balance_owed_rub / d.credit_limit_rub) * 100) : 0;
+      const barClass = usedPct < 30 ? "low" : usedPct > 70 ? "high" : "";
+
+      const paymentSection = d.balance_owed_rub > 0 ? `
+        <div class="section-title" style="margin-top:18px">${t("cc_pay_title")}</div>
+        <form id="cc-pay-form" autocomplete="off">
+          <div class="form-row">
+            <label>${t("cc_pay_amount")}</label>
+            <input name="cc_amount" type="number" min="1" placeholder="${fmt.format(d.min_payment_rub)}" />
+          </div>
+          <button class="btn primary" type="submit">${t("cc_pay_btn")}</button>
+        </form>
+        <div id="cc-pay-result"></div>
+      ` : "";
+
+      ccContainer.innerHTML = `
+        <div class="credit-card-visual">
+          <div class="card-bank">Raiffeisen</div>
+          <div class="card-number">${d.card_number_masked}</div>
+          <div class="card-bottom">
+            <div class="card-holder">${d.customer_name}</div>
+            <div class="card-type">${t("credit_card")}</div>
+          </div>
+        </div>
+
+        <div class="cc-summary">
+          <div class="cc-box">
+            <div class="cc-value ${d.balance_owed_rub > 0 ? 'warn' : ''}">${fmt.format(d.balance_owed_rub)} ₽</div>
+            <div class="cc-label">${t("cc_owed")}</div>
+          </div>
+          <div class="cc-box">
+            <div class="cc-value">${fmt.format(d.available_rub)} ₽</div>
+            <div class="cc-label">${t("cc_available")}</div>
+          </div>
+        </div>
+
+        <div style="font-size:12px;color:var(--muted);margin-bottom:6px">
+          ${fmt.format(d.balance_owed_rub)} ₽ ${t("cc_used_of")} ${fmt.format(d.credit_limit_rub)} ₽
+        </div>
+        <div class="cc-limit-bar">
+          <div class="cc-used ${barClass}" style="width:${usedPct}%"></div>
+        </div>
+
+        <div class="cc-details">
+          <div class="cc-detail-row">
+            <span class="cc-dl">${t("cc_limit")}</span>
+            <span class="cc-dv">${fmt.format(d.credit_limit_rub)} ₽</span>
+          </div>
+          ${d.min_payment_rub > 0 ? `<div class="cc-detail-row">
+            <span class="cc-dl">${t("cc_min_payment")}</span>
+            <span class="cc-dv">${fmt.format(d.min_payment_rub)} ₽</span>
+          </div>` : ""}
+          <div class="cc-detail-row">
+            <span class="cc-dl">${t("cc_interest")}</span>
+            <span class="cc-dv">${d.interest_rate_pct}%</span>
+          </div>
+          <div class="cc-detail-row">
+            <span class="cc-dl">${t("cc_grace")}</span>
+            <span class="cc-dv">${d.grace_period_days} ${t("cc_days")}</span>
+          </div>
+        </div>
+
+        ${paymentSection}`;
+
+      // Attach payment form handler
+      const payForm = document.getElementById("cc-pay-form");
+      if (payForm) {
+        payForm.addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          const payResult = document.getElementById("cc-pay-result");
+          payResult.innerHTML = "";
+          const amount = +new FormData(ev.target).get("cc_amount");
+          if (!amount || amount <= 0) {
+            payResult.innerHTML = `<div class="alert error">${t("cc_fill_amount")}</div>`;
+            return;
+          }
+          try {
+            const r = await fetch("/api/credit-card-payment", {
+              method: "POST", headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({ client_id: d.client_id, amount_rub: amount }),
+            });
+            const res = await r.json();
+            if (r.ok) {
+              payResult.innerHTML = `<div class="alert ok">${t("cc_pay_success")}: ${fmt.format(amount)} ₽</div>`;
+              payForm.reset();
+              // Refresh the credit card view
+              setTimeout(() => loadCreditCard(d.client_id), 500);
+            } else {
+              payResult.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+            }
+          } catch(e) {
+            payResult.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+          }
+        });
+      }
     }
 
     // ---- Loan products ----
@@ -741,17 +925,15 @@
         return;
       }
       productList.innerHTML = productsData.map(p => {
-        const sel = p.id === selectedProductId ? "selected" : "";
+        const s = p.id === selectedProductId ? "selected" : "";
         const rateHtml = p.rate_pct != null
-          ? `<span class="pc-rate">${t("rate_label")}: ${p.rate_pct}%</span>`
-          : "";
-        return `<div class="product-card ${sel}" data-product-id="${p.id}">
+          ? `<span class="pc-rate">${t("rate_label")}: ${p.rate_pct}%</span>` : "";
+        return `<div class="product-card ${s}" data-product-id="${p.id}">
           <div class="pc-name">${p.name}</div>
           <div class="pc-detail">${p.description || p.kind || ""}</div>
           ${rateHtml}
         </div>`;
       }).join("");
-
       productList.querySelectorAll(".product-card").forEach(card => {
         card.addEventListener("click", () => {
           selectedProductId = card.dataset.productId;
@@ -763,7 +945,7 @@
       });
     }
 
-    // ---- Loan application form ----
+    // ---- Loan form ----
     const loanForm = document.getElementById("loan-form");
     loanForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -775,17 +957,10 @@
         loanResult.innerHTML = `<div class="alert error">${t("fill_amount")}</div>`;
         return;
       }
-
-      const payload = {
-        client_id: opt.value,
-        product_id: selectedProductId,
-        amount_rub: amount,
-      };
-
+      const payload = { client_id: opt.value, product_id: selectedProductId, amount_rub: amount };
       try {
         const r = await fetch("/api/credit-apply", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
+          method: "POST", headers: {"Content-Type": "application/json"},
           body: JSON.stringify(payload),
         });
         const d = await r.json();
@@ -797,9 +972,7 @@
           let detail = isApproved
             ? `${t("approved_detail")}: ${fmt.format(d.max_amount_rub || amount)} ₽`
             : `${t("declined_detail")}`;
-          if (d.reason) {
-            detail += `<br/>${t("reason_label")}: ${d.reason}`;
-          }
+          if (d.reason) detail += `<br/>${t("reason_label")}: ${d.reason}`;
           loanResult.innerHTML = `<div class="decision-box ${cls}">
             <div class="decision-icon">${icon}</div>
             <div class="decision-status">${status}</div>
