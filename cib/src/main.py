@@ -66,7 +66,10 @@ PRODUCTS = [
         "grace_period_days": 30,
         "max_limit_rub": SECURED_CARD_MAX_LIMIT,
     },
-    {"id": "deposit-base", "kind": "deposit", "name": "Срочный депозит", "rate_pct": 14.0},
+    {"id": "deposit-3m",  "kind": "deposit", "name": "Депозит 3 месяца",  "rate_pct": 13.0, "term_months": 3,  "early_withdrawal": False},
+    {"id": "deposit-6m",  "kind": "deposit", "name": "Депозит 6 месяцев", "rate_pct": 15.0, "term_months": 6,  "early_withdrawal": False},
+    {"id": "deposit-12m", "kind": "deposit", "name": "Депозит 12 месяцев","rate_pct": 17.0, "term_months": 12, "early_withdrawal": False},
+    {"id": "deposit-flex","kind": "deposit", "name": "Накопительный счёт","rate_pct": 9.5,  "term_months": None,"early_withdrawal": True},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
 ]
 
@@ -87,6 +90,12 @@ class DecideRequest(BaseModel):
 class ActivateRequest(BaseModel):
     client_id: str
     product_id: str
+
+
+class DepositOpenRequest(BaseModel):
+    client_id: str
+    product_id: str
+    amount_rub: float
 
 
 @app.get("/health")
@@ -281,6 +290,68 @@ async def card_credit_limit(req: ActivateRequest) -> dict:
     if note:
         result["note"] = note
     return result
+
+
+@app.post("/deposit/open")
+async def deposit_open(req: DepositOpenRequest) -> dict:
+    product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product["kind"] != "deposit":
+        raise HTTPException(status_code=400, detail="Product is not a deposit")
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(f"{BACKEND_URL}/clients/{req.client_id}")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Backend unavailable")
+    customer = resp.json()
+
+    # Minimum amounts by product
+    min_amounts = {
+        "deposit-3m": 10_000,
+        "deposit-6m": 10_000,
+        "deposit-12m": 30_000,
+        "deposit-flex": 1_000,
+    }
+    min_amount = min_amounts.get(req.product_id, 10_000)
+    if req.amount_rub < min_amount:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Minimum deposit amount is {min_amount} rubles for this product"
+        )
+
+    import datetime
+    opened_at = datetime.date.today().isoformat()
+    term_months = product.get("term_months")
+    matures_at = None
+    if term_months:
+        import datetime as dt
+        today = dt.date.today()
+        matures_at = today.replace(
+            month=((today.month - 1 + term_months) % 12) + 1,
+            year=today.year + (today.month - 1 + term_months) // 12,
+        ).isoformat()
+
+    interest_rub = round(
+        req.amount_rub * product["rate_pct"] / 100 * (term_months or 12) / 12
+    )
+
+    return {
+        "client_id": req.client_id,
+        "product_id": req.product_id,
+        "product_name": product["name"],
+        "opened": True,
+        "amount_rub": req.amount_rub,
+        "rate_pct": product["rate_pct"],
+        "term_months": term_months,
+        "early_withdrawal": product["early_withdrawal"],
+        "opened_at": opened_at,
+        "matures_at": matures_at,
+        "projected_interest_rub": interest_rub,
+        "customer_name": customer.get("name"),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

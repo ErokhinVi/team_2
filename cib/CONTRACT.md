@@ -16,7 +16,10 @@ Current products:
 - `card-debit-cashback` — Debit card with cashback (groceries/transport/other, rates vary by segment)
 - `card-credit` — Credit card, 24.9%, 55-day grace period
 - `card-credit-secured` — Secured credit card for borderline customers, 29.9%, 30-day grace, limit up to 30,000 rubles
-- `deposit-base` — Term deposit, 14%
+- `deposit-3m`  — 3-month term deposit, 13%, min 10,000 rubles
+- `deposit-6m`  — 6-month term deposit, 15%, min 10,000 rubles
+- `deposit-12m` — 12-month term deposit, 17%, min 30,000 rubles
+- `deposit-flex` — Flexible savings account, 9.5%, withdraw anytime, min 1,000 rubles
 - `credit-consumer` — Consumer loan, 18.9%
 
 ### GET /
@@ -42,6 +45,32 @@ Returns:
 ```
 `approved` is `true` or `false`. `reasons` lists why a decision was declined (empty on approval).
 HTTP 404 if client or product is not found. HTTP 400 if product is not a credit product.
+
+### POST /deposit/open
+
+Open a deposit for a customer. Request body: `{ "client_id": "<string>", "product_id": "<string>", "amount_rub": <number> }`
+
+Returns confirmation with rate, maturity date, and projected interest earned:
+
+```json
+{
+  "client_id": "c-01000",
+  "product_id": "deposit-12m",
+  "product_name": "Депозит 12 месяцев",
+  "opened": true,
+  "amount_rub": 100000,
+  "rate_pct": 17.0,
+  "term_months": 12,
+  "early_withdrawal": false,
+  "opened_at": "2026-06-03",
+  "matures_at": "2027-06-03",
+  "projected_interest_rub": 17000,
+  "customer_name": "Анна Козлова"
+}
+```
+
+For `deposit-flex`, `term_months` and `matures_at` are null; `early_withdrawal` is true.
+HTTP 400 if amount is below the product minimum.
 
 ### POST /card/credit-limit
 
