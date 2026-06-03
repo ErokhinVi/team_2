@@ -183,6 +183,12 @@ Retail зовёт backend по этим путям — отдаём реальн
 `{client_id, has_card, card_id, credit_limit_rub, balance_owed_rub,
 available_rub, min_payment_rub, status}`. Если карт нет — `has_card=false` и нули.
 
+### POST /credit-card-payment  (он же /api/credit-card-payment)
+Платёж по карте клиента по его id. Принимает `{client_id, amount_rub}`, гасит
+долг основной активной карты. Возвращает `{status, client_id, card_id,
+paid_rub, credit_limit_rub, balance_owed_rub, available_rub, card_status, ts}`.
+`404` — нет клиента или активной карты; `400` — сумма ≤ 0 или больше долга.
+
 ## Инвестиции
 
 ### GET /instruments

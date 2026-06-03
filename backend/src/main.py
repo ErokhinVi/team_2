@@ -793,6 +793,44 @@ async def pay_credit_card(card_id: str, payload: dict) -> dict:
             **_card_view(card)}
 
 
+@app.post("/credit-card-payment")
+@app.post("/api/credit-card-payment")
+async def client_credit_card_payment(payload: dict) -> dict:
+    """Платёж по карте клиента по его id (для retail, который зовёт
+    `POST /credit-card-payment`). Гасит долг основной (первой активной) карты.
+    Принимает `{client_id, amount_rub}`. Возвращает
+    `{status, client_id, card_id, paid_rub, ...поля карты}`. `404` — нет клиента
+    или активной карты; `400` — сумма ≤ 0 или больше текущего долга."""
+    cid = payload.get("client_id")
+    if cid not in _clients_by_id:
+        raise HTTPException(status_code=404, detail="клиент не найден")
+    amount = int(payload.get("amount_rub") or 0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="укажи положительную сумму")
+    cards = _cards_by_client.get(cid, [])
+    card = next((c for c in cards if c["status"] == "active"), None)
+    if not card:
+        raise HTTPException(status_code=404, detail="у клиента нет активной карты")
+    owed = card["balance_owed_rub"]
+    if amount > owed:
+        raise HTTPException(
+            status_code=400, detail=f"платёж больше долга: к оплате всего {owed} ₽")
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+    card["balance_owed_rub"] -= amount
+    card["history"].append({
+        "ts": now_iso, "type": "payment", "amount_rub": amount,
+        "balance_owed_rub": card["balance_owed_rub"],
+    })
+    return {
+        "status": "ok", "client_id": cid, "card_id": card["card_id"],
+        "paid_rub": amount,
+        "credit_limit_rub": card["credit_limit_rub"],
+        "balance_owed_rub": card["balance_owed_rub"],
+        "available_rub": card["credit_limit_rub"] - card["balance_owed_rub"],
+        "card_status": card["status"], "ts": now_iso,
+    }
+
+
 # ---------- Продукты клиента ----------
 
 @app.post("/clients/{client_id}/products")
