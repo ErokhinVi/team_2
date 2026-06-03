@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=414,initial-scale=1" />
-  <title>Райф · мобильный банк · проверка связи</title>
+  <title>Райф · мобильный банк</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&display=swap" rel="stylesheet">
@@ -39,7 +39,9 @@
     .topbar {
       background: var(--text); color: var(--bg);
       padding: 28px 22px 16px;
+      display: flex; justify-content: space-between; align-items: flex-start;
     }
+    .topbar .left { flex: 1; }
     .topbar .logo {
       width: 26px; height: 26px;
       background: var(--raiff); display: inline-block;
@@ -53,6 +55,20 @@
       font-size: 12px; color: rgba(255,255,255,0.6);
       margin-top: 4px;
     }
+    .lang-toggle {
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.2);
+      color: var(--bg);
+      font-family: inherit; font-size: 12px; font-weight: 500;
+      padding: 5px 10px;
+      border-radius: 14px;
+      cursor: pointer;
+      letter-spacing: 0.03em;
+      transition: background 160ms;
+      white-space: nowrap;
+      margin-top: 2px;
+    }
+    .lang-toggle:hover { background: rgba(255,255,255,0.22); }
 
     .balance {
       padding: 26px 22px 22px;
@@ -168,40 +184,43 @@
 <body>
   <div class="phone">
     <div class="topbar">
-      <div><span class="logo"></span><span class="name">Райф</span></div>
-      <div class="who" id="topbar-who"></div>
+      <div class="left">
+        <div><span class="logo"></span><span class="name">Райф</span></div>
+        <div class="who" id="topbar-who"></div>
+      </div>
+      <button class="lang-toggle" id="lang-toggle">EN</button>
     </div>
 
     <div class="balance">
-      <div class="l">остаток на счёте</div>
+      <div class="l" data-i18n="balance_label">остаток на счёте</div>
       <div class="v"><span id="balance-v">—</span><span class="cur">₽</span></div>
     </div>
 
     <div class="client-picker">
-      <label>Профиль</label>
+      <label data-i18n="profile">Профиль</label>
       <select id="client-select"></select>
     </div>
 
     <div class="tabs">
-      <button class="tab active" data-tab="transfers">Переводы</button>
+      <button class="tab active" data-tab="transfers" data-i18n="transfers_tab">Переводы</button>
     </div>
 
     <div class="tab-pane show" data-pane="transfers">
-      <div class="section-title">Перевести</div>
+      <div class="section-title" data-i18n="transfer_title">Перевести</div>
       <form id="transfer-form" autocomplete="off">
         <div class="form-row">
-          <label>Кому</label>
-          <input name="to" placeholder="имя или ID получателя" />
+          <label data-i18n="to_label">Кому</label>
+          <input name="to" data-i18n-placeholder="to_placeholder" placeholder="имя или ID получателя" />
         </div>
         <div class="form-row">
-          <label>Сумма, ₽</label>
+          <label data-i18n="amount_label">Сумма, ₽</label>
           <input name="amount" type="number" min="1" placeholder="0" />
         </div>
-        <button class="btn primary" type="submit">Перевести</button>
+        <button class="btn primary" type="submit" data-i18n="transfer_btn">Перевести</button>
       </form>
       <div id="transfer-result"></div>
 
-      <div class="section-title" style="margin-top:24px">Последние операции</div>
+      <div class="section-title" style="margin-top:24px" data-i18n="recent_ops">Последние операции</div>
       <div id="tx-list" class="tx-list"></div>
     </div>
   </div>
@@ -209,6 +228,89 @@
   <script>
   (function(){
     "use strict";
+
+    // ---- i18n ----
+    const i18n = {
+      ru: {
+        balance_label:   "остаток на счёте",
+        profile:         "Профиль",
+        transfers_tab:   "Переводы",
+        transfer_title:  "Перевести",
+        to_label:        "Кому",
+        to_placeholder:  "имя или ID получателя",
+        amount_label:    "Сумма, ₽",
+        transfer_btn:    "Перевести",
+        recent_ops:      "Последние операции",
+        no_ops:          "Операций пока нет",
+        load_fail:       "Не удалось загрузить операции",
+        fill_fields:     "введи получателя и сумму",
+        sent:            "Отправлено",
+        recipient:       "получатель",
+        bank_client:     "клиент банка",
+        external:        "внешний счёт",
+        error:           "ошибка",
+        server_down:     "сервер не ответил",
+        transfer_in:     "Перевод входящий",
+        transfer_out:    "Перевод исходящий",
+        card_purchase:   "Оплата картой",
+        atm_withdraw:    "Снятие в банкомате",
+        salary:          "Зарплата",
+        utility_payment: "Коммунальные",
+        toggle_label:    "EN",
+      },
+      en: {
+        balance_label:   "account balance",
+        profile:         "Profile",
+        transfers_tab:   "Transfers",
+        transfer_title:  "Send money",
+        to_label:        "To",
+        to_placeholder:  "name or recipient ID",
+        amount_label:    "Amount, ₽",
+        transfer_btn:    "Transfer",
+        recent_ops:      "Recent transactions",
+        no_ops:          "No transactions yet",
+        load_fail:       "Could not load transactions",
+        fill_fields:     "enter recipient and amount",
+        sent:            "Sent",
+        recipient:       "recipient",
+        bank_client:     "bank client",
+        external:        "external account",
+        error:           "error",
+        server_down:     "server did not respond",
+        transfer_in:     "Incoming transfer",
+        transfer_out:    "Outgoing transfer",
+        card_purchase:   "Card purchase",
+        atm_withdraw:    "ATM withdrawal",
+        salary:          "Salary",
+        utility_payment: "Utilities",
+        toggle_label:    "RU",
+      }
+    };
+
+    let lang = localStorage.getItem("raif_lang") || "ru";
+
+    function t(key) { return (i18n[lang] || i18n.ru)[key] || key; }
+
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.querySelectorAll("[data-i18n]").forEach(el => {
+        el.textContent = t(el.dataset.i18n);
+      });
+      document.querySelectorAll("[data-i18n-placeholder]").forEach(el => {
+        el.placeholder = t(el.dataset.i18nPlaceholder);
+      });
+      document.getElementById("lang-toggle").textContent = t("toggle_label");
+      // re-render transactions in the new language
+      const opt = sel.selectedOptions[0];
+      if (opt) loadTx(opt.value);
+    }
+
+    document.getElementById("lang-toggle").addEventListener("click", () => {
+      lang = lang === "ru" ? "en" : "ru";
+      localStorage.setItem("raif_lang", lang);
+      applyLang();
+    });
+
     const fmt = new Intl.NumberFormat("ru-RU");
     const sel = document.getElementById("client-select");
     const balanceV = document.getElementById("balance-v");
@@ -216,7 +318,7 @@
     const txList = document.getElementById("tx-list");
     const transferResult = document.getElementById("transfer-result");
 
-    // ---- табы ----
+    // ---- tabs ----
     document.querySelectorAll(".tab").forEach(btn => {
       btn.addEventListener("click", () => {
         document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
@@ -226,7 +328,7 @@
       });
     });
 
-    // ---- загрузка списка клиентов в селект ----
+    // ---- load clients ----
     async function loadClients() {
       try {
         const r = await fetch("/clients?limit=200");
@@ -250,42 +352,35 @@
     }
     sel.addEventListener("change", onPickClient);
 
-    // ---- последние операции ----
+    // ---- transactions ----
     async function loadTx(clientId) {
       try {
         const r = await fetch(`/transactions/${clientId}?limit=10`);
         const d = await r.json();
         const items = d.items || [];
         if (!items.length) {
-          txList.innerHTML = `<div class="empty">Операций пока нет</div>`;
+          txList.innerHTML = `<div class="empty">${t("no_ops")}</div>`;
           return;
         }
-        txList.innerHTML = items.map(t => {
-          const sign = t.amount_rub >= 0 ? "plus" : "minus";
-          const amt = (t.amount_rub >= 0 ? "+" : "−") + fmt.format(Math.abs(t.amount_rub));
-          const niceTs = t.ts.replace("T", " ").slice(0, 16);
+        txList.innerHTML = items.map(tx => {
+          const sign = tx.amount_rub >= 0 ? "plus" : "minus";
+          const amt = (tx.amount_rub >= 0 ? "+" : "−") + fmt.format(Math.abs(tx.amount_rub));
+          const niceTs = tx.ts.replace("T", " ").slice(0, 16);
           return `<div class="tx-row">
             <div>
-              <div class="desc">${typeLabel(t.type)}</div>
+              <div class="desc">${typeLabel(tx.type)}</div>
               <div class="ts">${niceTs}</div>
             </div>
             <div class="amt ${sign}">${amt} ₽</div>
           </div>`;
         }).join("");
       } catch(e) {
-        txList.innerHTML = `<div class="empty">Не удалось загрузить операции</div>`;
+        txList.innerHTML = `<div class="empty">${t("load_fail")}</div>`;
       }
     }
 
-    function typeLabel(t) {
-      return ({
-        transfer_in:    "Перевод входящий",
-        transfer_out:   "Перевод исходящий",
-        card_purchase:  "Оплата картой",
-        atm_withdraw:   "Снятие в банкомате",
-        salary:         "Зарплата",
-        utility_payment:"Коммунальные",
-      })[t] || t;
+    function typeLabel(tp) {
+      return t(tp) || tp;
     }
 
     function setBalance(newAmount) {
@@ -294,7 +389,7 @@
       if (opt) opt.dataset.balance = newAmount;
     }
 
-    // ---- форма перевода ----
+    // ---- transfer form ----
     const transferForm = document.getElementById("transfer-form");
     transferForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -305,7 +400,7 @@
       const to = (data.get("to") || "").trim();
       const amount = +data.get("amount");
       if (!to || amount <= 0) {
-        transferResult.innerHTML = `<div class="alert error">введи получателя и сумму</div>`;
+        transferResult.innerHTML = `<div class="alert error">${t("fill_fields")}</div>`;
         return;
       }
 
@@ -323,25 +418,26 @@
         const d = await r.json();
         if (r.ok) {
           const kindLabel = d.kind === "internal"
-            ? `${d.to} (клиент банка)`
-            : `${d.to} (внешний счёт)`;
+            ? `${d.to} (${t("bank_client")})`
+            : `${d.to} (${t("external")})`;
           transferResult.innerHTML =
-            `<div class="alert ok">Отправлено ${fmt.format(d.amount_rub)} ₽<br/>
-             получатель: ${kindLabel}</div>`;
+            `<div class="alert ok">${t("sent")} ${fmt.format(d.amount_rub)} ₽<br/>
+             ${t("recipient")}: ${kindLabel}</div>`;
           setBalance(d.new_balance_rub);
           transferForm.reset();
           loadTx(opt.value);
         } else {
           transferResult.innerHTML =
-            `<div class="alert error">${d.detail || "ошибка"}</div>`;
+            `<div class="alert error">${d.detail || t("error")}</div>`;
         }
       } catch(e) {
         transferResult.innerHTML =
-          `<div class="alert error">сервер не ответил</div>`;
+          `<div class="alert error">${t("server_down")}</div>`;
       }
     });
 
     loadClients();
+    applyLang();
   })();
   </script>
 </body>
