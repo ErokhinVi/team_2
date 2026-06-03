@@ -14,9 +14,11 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+import asyncio as _asyncio  # for the watcher startup hook
+
 from src import (brokerage, cards, carloans, core, insurance, investments,
                  loans, locks, loyalty, mortgages, offers, referrals, savings,
-                 smart_engine, transfers)
+                 smart_engine, transfers, watcher)
 from src.services import BACKEND_URL, CIB_URL, COMMIT, STATIC_DIR, TEAM_NAME
 
 app = FastAPI(title="retail — мобильный банк", version="2.1.0")
@@ -37,6 +39,18 @@ if STAGING_DIR.exists():
 async def health() -> dict:
     return {"status": "ok", "team": TEAM_NAME, "block": "retail",
             "commit": COMMIT, "backend_url": BACKEND_URL, "cib_url": CIB_URL}
+
+
+# ---- End-to-end watcher (alert mode) ----
+@app.on_event("startup")
+async def _start_watcher() -> None:
+    _asyncio.create_task(watcher.watcher_loop())
+
+
+@app.get("/api/watcher/status")
+async def watcher_status() -> dict:
+    """Latest end-to-end verification pass — surface mismatches to the browser."""
+    return watcher.last_pass
 
 
 @app.get("/", response_class=HTMLResponse)
