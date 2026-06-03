@@ -83,6 +83,11 @@ created_at}`. `404` — если кто-то из клиентов не найд
 `{client_id, invited_count, total_bonus_earned_rub, as_inviter: [рефералы],
 as_invitee: реферал|null}`. `404`, если клиента нет.
 
+### GET /referrals/summary
+Сводка по программе (для дашборда). Параметр `limit` (по умолчанию 10).
+Возвращает `{total_referrals, customers_acquired, total_bonus_paid_rub,
+top_inviters: [{client_id, name, invited_count, bonus_earned_rub}]}`.
+
 ## Вклады (движение денег)
 
 Открытие вклада списывает деньги с обычного счёта клиента (`balance_rub`) и

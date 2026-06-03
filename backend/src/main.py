@@ -485,6 +485,32 @@ async def list_referrals(client_id: str) -> dict:
     }
 
 
+@app.get("/referrals/summary")
+async def referrals_summary(
+    limit: int = Query(default=10, ge=1, le=100),
+) -> dict:
+    """Сводка по реферальной программе для дашборда: сколько клиентов привлечено,
+    выплачено бонусов и топ пригласивших. Возвращает `{total_referrals,
+    customers_acquired, total_bonus_paid_rub, top_inviters: [{client_id, name,
+    invited_count, bonus_earned_rub}]}`."""
+    top = []
+    for inviter_id, invited in _referrals_by_inviter.items():
+        client = _clients_by_id.get(inviter_id, {})
+        top.append({
+            "client_id": inviter_id,
+            "name": client.get("name", inviter_id),
+            "invited_count": len(invited),
+            "bonus_earned_rub": sum(int(r["bonus_rub"]) for r in invited),
+        })
+    top.sort(key=lambda r: r["invited_count"], reverse=True)
+    return {
+        "total_referrals": len(_referrals),
+        "customers_acquired": len(_referred_invitees),
+        "total_bonus_paid_rub": sum(int(r["bonus_rub"]) for r in _referrals),
+        "top_inviters": top[:limit],
+    }
+
+
 # ---------- Кредитные карты ----------
 
 @app.get("/credit-cards")
@@ -1511,6 +1537,11 @@ _DASHBOARD_HTML = """<!doctype html>
     <div class="panel"><h2>Growth opportunities — who to offer what</h2>
          <div id="opps"></div></div>
   </div>
+  <div class="grid2">
+    <div class="panel"><h2>Referral programme — growth engine</h2>
+         <div class="tiles" id="reftiles"></div></div>
+    <div class="panel"><h2>Top inviters</h2><div id="topinviters"></div></div>
+  </div>
 </main>
 <script>
 const fmt = n => (n||0).toLocaleString('en-US');
@@ -1531,10 +1562,11 @@ function tile(label,value,hint){
 }
 async function load(){
   try{
-    const [ov, feat, opp] = await Promise.all([
+    const [ov, feat, opp, ref] = await Promise.all([
       getJSON('/analytics/overview'),
       getJSON('/analytics/feature-acquisition'),
       getJSON('/recommendations/summary'),
+      getJSON('/referrals/summary'),
     ]);
     document.getElementById('meta').textContent =
       ov.clients_total + ' customers · live data';
@@ -1560,6 +1592,17 @@ async function load(){
       '<td class="r">'+(p.potential_amount_rub?rub(p.potential_amount_rub):'—')+'</td></tr>').join('');
     document.getElementById('opps').innerHTML =
       '<table><tr><th>Product</th><th class="r">Candidates</th><th class="r">Potential</th></tr>'+rows+'</table>';
+
+    document.getElementById('reftiles').innerHTML =
+      tile('Customers acquired', fmt(ref.customers_acquired), 'via referrals') +
+      tile('Referrals recorded', fmt(ref.total_referrals), '') +
+      tile('Bonuses paid', rub(ref.total_bonus_paid_rub), 'to both sides');
+    const ti = ref.top_inviters;
+    document.getElementById('topinviters').innerHTML = ti.length
+      ? '<table><tr><th>Customer</th><th class="r">Invited</th><th class="r">Bonus earned</th></tr>'+
+        ti.map(t=>'<tr><td>'+t.name+'</td><td class="r">'+fmt(t.invited_count)+
+        '</td><td class="r">'+rub(t.bonus_earned_rub)+'</td></tr>').join('')+'</table>'
+      : '<div class="hint" style="color:#6b7280">No referrals yet — the engine starts here once customers begin inviting friends.</div>';
   }catch(e){
     document.getElementById('meta').innerHTML = '<span class="err">'+e.message+'</span>';
   }
