@@ -89,6 +89,9 @@ _revenue_events: list[dict[str, Any]] = []
 _referrals: list[dict[str, Any]] = []
 _referrals_by_inviter: dict[str, list[dict[str, Any]]] = {}
 _referred_invitees: set[str] = set()
+# Приветственный бонус новому клиенту (в кешбэк) и бонус по реферальной ссылке.
+WELCOME_BONUS_RUB = 1000
+REFERRAL_BONUS_RUB = 1000
 
 # Вклады: списываем деньги с баланса клиента и держим их во вкладе, пока он
 # не закрыт. Журнал вкладов + индексы по id и по клиенту.
@@ -318,6 +321,81 @@ async def client_debt_service(client_id: str) -> dict:
     if client_id not in _clients_by_id:
         raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
     return {"client_id": client_id, **_debt_service(client_id)}
+
+
+def _next_client_id() -> str:
+    """Следующий свободный id вида c-XXXXX."""
+    maxn = 0
+    for cid in _clients_by_id:
+        if cid.startswith("c-"):
+            try:
+                maxn = max(maxn, int(cid[2:]))
+            except ValueError:
+                pass
+    return f"c-{maxn + 1:05d}"
+
+
+@app.post("/clients")
+@app.post("/api/clients")
+async def open_account(payload: dict) -> dict:
+    """Открыть счёт новому клиенту (онбординг). Создаёт запись клиента,
+    начисляет приветственный бонус в кешбэк и, если указан `referred_by`,
+    записывает реферал и платит бонус обеим сторонам. Принимает JSON
+    `{name, segment?, income_rub?, balance_rub?, age?, products?, referred_by?,
+    welcome_bonus_rub?, referral_bonus_rub?}`. Возвращает
+    `{status, client, welcome_bonus_rub, referral}`. `400`, если нет имени."""
+    name = (payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="укажи имя клиента (поле name)")
+    income = int(payload.get("income_rub") or 0)
+    balance = int(payload.get("balance_rub") or payload.get("initial_deposit_rub") or 0)
+    if income < 0 or balance < 0:
+        raise HTTPException(status_code=400, detail="доход и баланс не могут быть отрицательными")
+    products = payload.get("products")
+    if not isinstance(products, list) or not products:
+        products = ["debit"]
+    welcome = int(payload.get("welcome_bonus_rub", WELCOME_BONUS_RUB))
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+    today = datetime.now().date().isoformat()
+    new_id = _next_client_id()
+
+    client: dict[str, Any] = {
+        "id": new_id,
+        "name": name,
+        "segment": (payload.get("segment") or "mass").strip(),
+        "age": int(payload.get("age") or 0),
+        "income_rub": income,
+        "balance_rub": balance,
+        "products": list(products),
+        "risk_score": float(payload.get("risk_score", 0.3)),
+        "has_overdue_history": False,
+        "joined_at": today,
+        "cashback_balance_rub": 0,
+        "existing_monthly_debt_rub": 0,
+    }
+    _clients.append(client)
+    _clients_by_id[new_id] = client
+    if welcome > 0:
+        _credit_cashback(client, welcome, "приветственный бонус", now_iso)
+
+    referral_result: Any = None
+    referred_by = (payload.get("referred_by") or "").strip()
+    if referred_by:
+        if referred_by not in _clients_by_id or referred_by == new_id:
+            referral_result = {"error": f"пригласивший {referred_by} не найден — "
+                               f"счёт открыт, но реферальный бонус не начислен"}
+        else:
+            bonus = int(payload.get("referral_bonus_rub", REFERRAL_BONUS_RUB))
+            r = await create_referral({
+                "inviter_id": referred_by, "invitee_id": new_id, "bonus_rub": bonus})
+            referral_result = r["referral"]
+
+    return {
+        "status": "ok",
+        "client": client,
+        "welcome_bonus_rub": welcome,
+        "referral": referral_result,
+    }
 
 
 @app.get("/transactions/{client_id}")
@@ -809,6 +887,7 @@ def _deposit_view(dep: dict[str, Any]) -> dict[str, Any]:
         "status": dep["status"],
         "opened_at": dep["opened_at"],
         "matures_at": dep["matures_at"],
+        "accrued_interest_rub": int(dep.get("accrued_interest_rub", 0)),
     }
 
 
@@ -852,6 +931,7 @@ async def open_deposit(payload: dict) -> dict:
         "status": "active",
         "opened_at": opened_at,
         "matures_at": matures_at,
+        "accrued_interest_rub": 0,
         "ts": now_iso,
     }
     _deposits.append(dep)
@@ -914,22 +994,24 @@ async def withdraw_deposit(deposit_id: str, payload: dict | None = None) -> dict
     now_iso = datetime.now().replace(microsecond=0).isoformat()
     today = datetime.now().date().isoformat()
     principal = int(dep["amount_rub"])
-    # Полные проценты за весь срок.
-    full_interest = int(round(
+    # База процентов: если уже что-то накоплено через accrue-interest — берём
+    # накопленное, иначе считаем полные проценты за весь срок.
+    accrued = int(dep.get("accrued_interest_rub", 0))
+    base_interest = accrued if accrued > 0 else int(round(
         principal * (dep["rate_pct"] / 100.0) * (dep["term_months"] / 12.0)))
     matured = today >= dep["matures_at"]
     early_requested = bool(payload.get("early"))
 
     if matured and not early_requested:
-        interest = full_interest
+        interest = base_interest
         kind = "matured"
     elif dep["early_withdrawal"]:
         # Гибкий вклад — досрочное снятие без потери процентов.
-        interest = full_interest
+        interest = base_interest
         kind = "flex"
     else:
         # Срочный вклад досрочно — сниженные проценты (треть от начисленных).
-        interest = int(round(full_interest * 0.3))
+        interest = int(round(base_interest * 0.3))
         kind = "early"
 
     returned = principal + interest
@@ -957,6 +1039,30 @@ async def withdraw_deposit(deposit_id: str, payload: dict | None = None) -> dict
         "new_balance_rub": client["balance_rub"],
         "ts": now_iso,
     }
+
+
+@app.post("/deposits/accrue-interest")
+@app.post("/api/deposits/accrue-interest")
+async def accrue_deposit_interest(payload: dict | None = None) -> dict:
+    """Начислить проценты по всем активным вкладам за `days` дней (по умолчанию
+    30) — так деньги клиента видимо растут. Принимает `{days?}`. Возвращает
+    `{status, deposits_accrued, days, interest_added_rub}`."""
+    payload = payload or {}
+    days = int(payload.get("days") or 30)
+    if days <= 0:
+        raise HTTPException(status_code=400, detail="days должно быть положительным")
+    count = 0
+    total = 0
+    for dep in _deposits:
+        if dep["status"] != "active":
+            continue
+        daily_rate = float(dep["rate_pct"]) / 100.0 / 365.0
+        interest = int(round(int(dep["amount_rub"]) * daily_rate * days))
+        dep["accrued_interest_rub"] = int(dep.get("accrued_interest_rub", 0)) + interest
+        count += 1
+        total += interest
+    return {"status": "ok", "deposits_accrued": count, "days": days,
+            "interest_added_rub": total}
 
 
 # ---------- Инвестиции: портфель и заявки ----------
