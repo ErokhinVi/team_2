@@ -232,6 +232,86 @@
       text-align: center; padding: 40px 0;
       color: var(--muted); font-size: 13px;
     }
+
+    /* ---- Debit card visual ---- */
+    .debit-card {
+      background: linear-gradient(135deg, #1f1d18 0%, #3a362e 60%, #1f1d18 100%);
+      border-radius: 16px;
+      padding: 24px 22px 20px;
+      color: #f6f3ec;
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 18px;
+    }
+    .debit-card::before {
+      content: "";
+      position: absolute;
+      top: -30px; right: -30px;
+      width: 120px; height: 120px;
+      background: var(--raiff);
+      border-radius: 50%;
+      opacity: 0.15;
+    }
+    .debit-card .card-bank {
+      font-size: 11px; letter-spacing: 0.15em;
+      text-transform: uppercase; opacity: 0.5;
+      margin-bottom: 20px;
+    }
+    .debit-card .card-number {
+      font-size: 18px; font-weight: 400;
+      letter-spacing: 0.12em;
+      font-variant-numeric: tabular-nums;
+      margin-bottom: 18px;
+    }
+    .debit-card .card-bottom {
+      display: flex; justify-content: space-between; align-items: flex-end;
+    }
+    .debit-card .card-holder {
+      font-size: 12px; text-transform: uppercase;
+      letter-spacing: 0.08em; opacity: 0.8;
+    }
+    .debit-card .card-type {
+      font-size: 11px; font-weight: 600;
+      background: var(--raiff); color: var(--text);
+      padding: 3px 10px; border-radius: 8px;
+    }
+
+    .cashback-summary {
+      display: flex; gap: 12px; margin-bottom: 18px;
+    }
+    .cashback-box {
+      flex: 1;
+      background: var(--bg);
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+    }
+    .cashback-box .cb-value {
+      font-size: 22px; font-weight: 600;
+      color: var(--good);
+    }
+    .cashback-box .cb-label {
+      font-size: 11px; color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-top: 4px;
+    }
+
+    .cashback-tx-row {
+      padding: 10px 0;
+      border-bottom: 1px solid var(--rule);
+      display: grid; grid-template-columns: 1fr auto auto;
+      gap: 8px;
+      align-items: center;
+    }
+    .cashback-tx-row:last-child { border-bottom: 0; }
+    .cashback-tx-row .cb-tx-desc { font-size: 13px; }
+    .cashback-tx-row .cb-tx-ts { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .cashback-tx-row .cb-tx-amount { font-size: 13px; color: var(--text-2); text-align: right; }
+    .cashback-tx-row .cb-tx-cashback {
+      font-size: 13px; font-weight: 600; color: var(--good);
+      text-align: right; white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -256,6 +336,7 @@
 
     <div class="tabs">
       <button class="tab active" data-tab="transfers" data-i18n="transfers_tab">Переводы</button>
+      <button class="tab" data-tab="card" data-i18n="card_tab">Карта</button>
       <button class="tab" data-tab="loans" data-i18n="loans_tab">Кредиты</button>
     </div>
 
@@ -277,6 +358,13 @@
 
       <div class="section-title" style="margin-top:24px" data-i18n="recent_ops">Последние операции</div>
       <div id="tx-list" class="tx-list"></div>
+    </div>
+
+    <!-- ===== Card pane ===== -->
+    <div class="tab-pane" data-pane="card">
+      <div id="card-container">
+        <div class="products-loading" data-i18n="loading_card">Загрузка карты...</div>
+      </div>
     </div>
 
     <!-- ===== Loans pane ===== -->
@@ -311,6 +399,7 @@
         balance_label:    "остаток на счёте",
         profile:          "Профиль",
         transfers_tab:    "Переводы",
+        card_tab:         "Карта",
         loans_tab:        "Кредиты",
         transfer_title:   "Перевести",
         to_label:         "Кому",
@@ -348,11 +437,19 @@
         declined_detail:  "К сожалению, заявка отклонена",
         reason_label:     "Причина",
         products_error:   "Не удалось загрузить продукты",
+        loading_card:     "Загрузка карты...",
+        card_error:       "Не удалось загрузить данные карты",
+        debit_card:       "ДЕБЕТОВАЯ КАРТА",
+        cashback_earned:  "Кешбэк",
+        cashback_rate:    "Базовая ставка",
+        cashback_history: "Кешбэк по операциям",
+        no_cashback:      "Нет операций с кешбэком",
       },
       en: {
         balance_label:    "account balance",
         profile:          "Profile",
         transfers_tab:    "Transfers",
+        card_tab:         "Card",
         loans_tab:        "Loans",
         transfer_title:   "Send money",
         to_label:         "To",
@@ -390,6 +487,13 @@
         declined_detail:  "Unfortunately, your application was declined",
         reason_label:     "Reason",
         products_error:   "Could not load products",
+        loading_card:     "Loading card...",
+        card_error:       "Could not load card data",
+        debit_card:       "DEBIT CARD",
+        cashback_earned:  "Cashback",
+        cashback_rate:    "Base rate",
+        cashback_history: "Cashback by transaction",
+        no_cashback:      "No cashback transactions",
       }
     };
 
@@ -407,8 +511,10 @@
       });
       document.getElementById("lang-toggle").textContent = t("toggle_label");
       const opt = sel.selectedOptions[0];
-      if (opt) loadTx(opt.value);
-      // re-render product cards in new language
+      if (opt) {
+        loadTx(opt.value);
+        loadCardInfo(opt.value);
+      }
       if (productsData.length) renderProducts();
     }
 
@@ -427,6 +533,7 @@
     const productList = document.getElementById("product-list");
     const loanApplySection = document.getElementById("loan-apply-section");
     const loanResult = document.getElementById("loan-result");
+    const cardContainer = document.getElementById("card-container");
 
     // ---- tabs ----
     document.querySelectorAll(".tab").forEach(btn => {
@@ -435,6 +542,11 @@
         document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("show"));
         btn.classList.add("active");
         document.querySelector(`[data-pane="${btn.dataset.tab}"]`).classList.add("show");
+        // load card info when switching to card tab
+        if (btn.dataset.tab === "card") {
+          const opt = sel.selectedOptions[0];
+          if (opt) loadCardInfo(opt.value);
+        }
       });
     });
 
@@ -459,7 +571,7 @@
       balanceV.textContent = fmt.format(+opt.dataset.balance || 0);
       topbarWho.textContent = opt.dataset.name;
       loadTx(opt.value);
-      // reset loan result when switching customer
+      loadCardInfo(opt.value);
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
@@ -548,6 +660,64 @@
       }
     });
 
+    // ---- Debit card with cashback ----
+    async function loadCardInfo(clientId) {
+      try {
+        const r = await fetch(`/api/card-info/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        const d = await r.json();
+        renderCard(d);
+      } catch(e) {
+        cardContainer.innerHTML = `<div class="empty">${t("card_error")}</div>`;
+      }
+    }
+
+    function renderCard(data) {
+      const cbTxs = data.cashback_transactions || [];
+      let cbTxsHtml = "";
+      if (cbTxs.length) {
+        cbTxsHtml = cbTxs.map(tx => {
+          const niceTs = tx.ts.replace("T", " ").slice(0, 16);
+          const ratePct = (tx.rate * 100).toFixed(1);
+          return `<div class="cashback-tx-row">
+            <div>
+              <div class="cb-tx-desc">${typeLabel(tx.type)}</div>
+              <div class="cb-tx-ts">${niceTs}</div>
+            </div>
+            <div class="cb-tx-amount">${fmt.format(Math.abs(tx.amount_rub))} ₽</div>
+            <div class="cb-tx-cashback">+${fmt.format(tx.cashback_rub)} ₽</div>
+          </div>`;
+        }).join("");
+      } else {
+        cbTxsHtml = `<div class="empty">${t("no_cashback")}</div>`;
+      }
+
+      cardContainer.innerHTML = `
+        <div class="debit-card">
+          <div class="card-bank">Raiffeisen</div>
+          <div class="card-number">${data.card_number_masked}</div>
+          <div class="card-bottom">
+            <div class="card-holder">${data.customer_name}</div>
+            <div class="card-type">${t("debit_card")}</div>
+          </div>
+        </div>
+
+        <div class="cashback-summary">
+          <div class="cashback-box">
+            <div class="cb-value">${fmt.format(data.total_cashback_rub)} ₽</div>
+            <div class="cb-label">${t("cashback_earned")}</div>
+          </div>
+          <div class="cashback-box">
+            <div class="cb-value">1%</div>
+            <div class="cb-label">${t("cashback_rate")}</div>
+          </div>
+        </div>
+
+        <div class="section-title">${t("cashback_history")}</div>
+        <div class="tx-list">${cbTxsHtml}</div>
+      `;
+    }
+
     // ---- Loan products ----
     let productsData = [];
     let selectedProductId = null;
@@ -557,7 +727,6 @@
         const r = await fetch("/products");
         const d = await r.json();
         productsData = (d.items || []).filter(p => p.kind === "credit" || p.kind === "loan");
-        // if no credit-specific products, show all
         if (!productsData.length) productsData = d.items || [];
         renderProducts();
       } catch(e) {
@@ -583,7 +752,6 @@
         </div>`;
       }).join("");
 
-      // click handlers
       productList.querySelectorAll(".product-card").forEach(card => {
         card.addEventListener("click", () => {
           selectedProductId = card.dataset.productId;

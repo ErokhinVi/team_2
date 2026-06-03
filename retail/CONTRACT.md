@@ -28,6 +28,13 @@ from_client_id, new_balance_rub, tx_id, ts}`.
 ### GET /products
 Каталог продуктов (прокси к cib). Возвращает `{total, items: [продукты]}`.
 
+### GET /api/card-info/{client_id}
+Debit card summary with cashback. Fetches customer profile and transactions
+from backend, cashback rates from CIB (GET /cashback-rates, if available).
+Returns `{client_id, customer_name, card_number_masked, balance_rub,
+total_cashback_rub, cashback_transactions: [{tx_id, type, amount_rub,
+cashback_rub, rate, ts, counterparty}], rates, rates_source}`.
+
 ### POST /api/credit-apply
 Заявка на кредит. Принимает JSON `{client_id, product_id, amount_rub}`.
 Orchestration: fetches customer profile from backend, then asks cib
@@ -39,7 +46,7 @@ amount_rub, max_amount_rub, reason, source}`.
 ## Кого я зову у соседей
 
 - backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`
-- cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`)
+- cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`), `GET /cashback-rates` (when available; expected: `{rates: {card_purchase: 0.01, ...}}`)
 
 ## Где работает блок локально
 

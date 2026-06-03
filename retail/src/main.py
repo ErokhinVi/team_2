@@ -146,3 +146,81 @@ async def credit_apply(payload: dict) -> dict:
         ),
         "source": "retail-heuristic",
     }
+
+
+# ---- Debit card with cashback ----
+
+# Default cashback rates by transaction type (used until CIB provides real rates)
+DEFAULT_CASHBACK_RATES = {
+    "card_purchase":   0.01,   # 1%
+    "utility_payment": 0.005,  # 0.5%
+    "atm_withdraw":    0.0,    # no cashback
+    "transfer_out":    0.0,
+    "transfer_in":     0.0,
+    "salary":          0.0,
+}
+
+
+@app.get("/api/card-info/{client_id}")
+async def card_info(client_id: str) -> dict:
+    """Build debit card summary with cashback for a customer.
+
+    Fetches the customer profile and recent transactions from backend,
+    tries to get cashback rates from CIB (GET /cashback-rates), falls
+    back to defaults if CIB doesn't have that endpoint yet.
+    Returns the card visual data + cashback breakdown.
+    """
+    # Get customer profile
+    customer = await _backend_get(f"/clients/{client_id}")
+
+    # Get transactions
+    tx_data = await _backend_get(f"/transactions/{client_id}", {"limit": "50"})
+    txs = tx_data.get("items", [])
+
+    # Try to get cashback rates from CIB
+    rates = DEFAULT_CASHBACK_RATES
+    rates_source = "default"
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.get(f"{CIB_URL}/cashback-rates")
+        if r.status_code == 200:
+            cib_rates = r.json()
+            if isinstance(cib_rates, dict) and cib_rates.get("rates"):
+                rates = cib_rates["rates"]
+                rates_source = "cib"
+    except httpx.HTTPError:
+        pass
+
+    # Calculate cashback per transaction
+    total_cashback = 0.0
+    cashback_txs = []
+    for tx in txs:
+        tx_type = tx.get("type", "")
+        amount = abs(tx.get("amount_rub", 0))
+        rate = rates.get(tx_type, 0.0)
+        cashback = round(amount * rate, 2)
+        if cashback > 0:
+            total_cashback += cashback
+            cashback_txs.append({
+                "tx_id": tx.get("id"),
+                "type": tx_type,
+                "amount_rub": tx.get("amount_rub"),
+                "cashback_rub": cashback,
+                "rate": rate,
+                "ts": tx.get("ts"),
+                "counterparty": tx.get("counterparty", ""),
+            })
+
+    # Card number — masked, derived from client ID for consistency
+    card_suffix = str(abs(hash(client_id)))[-4:]
+
+    return {
+        "client_id": client_id,
+        "customer_name": customer.get("name", ""),
+        "card_number_masked": f"**** **** **** {card_suffix}",
+        "balance_rub": customer.get("balance_rub", 0),
+        "total_cashback_rub": round(total_cashback, 2),
+        "cashback_transactions": cashback_txs,
+        "rates": rates,
+        "rates_source": rates_source,
+    }
