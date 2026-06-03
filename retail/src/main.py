@@ -90,12 +90,10 @@ async def list_products() -> dict:
 async def credit_apply(payload: dict) -> dict:
     """Orchestrate a loan application.
 
-    1. Fetch the customer profile from backend.
-    2. Send the profile + chosen product to CIB for a credit decision.
-    3. Return the decision to the customer.
-
-    If CIB doesn't have a /api/credit-decision endpoint yet, we fall back
-    to a simple local heuristic so the UI is already functional.
+    Sends client_id + product_id to CIB POST /credit/decide.
+    CIB fetches the customer profile from backend on its own and returns
+    {approved, reasons, explanation, customer_name}.
+    If CIB is unreachable, falls back to a simple local heuristic.
     """
     client_id = payload.get("client_id")
     product_id = payload.get("product_id")
@@ -104,29 +102,34 @@ async def credit_apply(payload: dict) -> dict:
     if not client_id or not product_id:
         raise HTTPException(status_code=400, detail="client_id and product_id required")
 
-    # Step 1 — get customer profile from backend
-    customer = await _backend_get(f"/clients/{client_id}")
-
-    # Step 2 — ask CIB for credit decision
+    # Ask CIB for credit decision (CIB fetches customer data itself)
     decision_payload = {
         "client_id": client_id,
         "product_id": product_id,
-        "amount_rub": amount,
-        "customer": customer,
     }
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.post(f"{CIB_URL}/api/credit-decision", json=decision_payload)
+            r = await client.post(f"{CIB_URL}/credit/decide", json=decision_payload)
         if r.status_code == 200:
-            return r.json()
+            cib = r.json()
+            return {
+                "status": "approved" if cib.get("approved") else "declined",
+                "client_id": cib.get("client_id", client_id),
+                "product_id": cib.get("product_id", product_id),
+                "amount_rub": amount,
+                "reason": cib.get("explanation", ""),
+                "reasons": cib.get("reasons", []),
+                "customer_name": cib.get("customer_name", ""),
+                "source": "cib",
+            }
         # CIB returned an error — fall through to local heuristic
     except httpx.HTTPError:
         pass  # CIB unreachable — fall through to local heuristic
 
-    # Step 3 — fallback: simple heuristic until CIB builds the endpoint
+    # Fallback: simple heuristic when CIB is not reachable
+    customer = await _backend_get(f"/clients/{client_id}")
     income = customer.get("income_rub", 0)
     has_overdue = customer.get("has_overdue_history", False)
-    balance = customer.get("balance_rub", 0)
 
     approved = (income >= 30_000 and not has_overdue and amount <= income * 12)
     max_amount = income * 12 if not has_overdue else 0

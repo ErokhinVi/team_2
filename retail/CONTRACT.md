@@ -39,7 +39,7 @@ amount_rub, max_amount_rub, reason, source}`.
 ## Кого я зову у соседей
 
 - backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`
-- cib: `GET /products`, `POST /api/credit-decision` (when available; payload: `{client_id, product_id, amount_rub, customer: {...}}`)
+- cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`)
 
 ## Где работает блок локально
 
