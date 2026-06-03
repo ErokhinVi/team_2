@@ -30,12 +30,30 @@ CASHBACK_RATES: dict[str, dict[str, float]] = {
 }
 DEFAULT_CASHBACK = {"groceries": 2.0, "transport": 1.5, "other": 0.5}
 
+# Credit card limit multipliers by segment (applied to monthly income)
+CREDIT_CARD_LIMIT_MULTIPLIER: dict[str, float] = {
+    "mass":          2.0,
+    "mass_affluent": 4.0,
+    "premium":       6.0,
+    "private":       10.0,
+    "sme":           3.0,
+}
+CREDIT_CARD_MAX_RISK = 0.60   # no credit card above this risk score
+CREDIT_CARD_MIN_INCOME = 25_000
+
 PRODUCTS = [
     {
         "id": "card-debit-cashback",
         "kind": "card",
         "name": "Дебетовая карта с кэшбэком",
         "cashback_categories": {"groceries": "up to 7%", "transport": "up to 5%", "other": "up to 2%"},
+    },
+    {
+        "id": "card-credit",
+        "kind": "credit_card",
+        "name": "Кредитная карта",
+        "rate_pct": 24.9,
+        "grace_period_days": 55,
     },
     {"id": "deposit-base", "kind": "deposit", "name": "Срочный депозит", "rate_pct": 14.0},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
@@ -169,6 +187,65 @@ async def card_activate(req: ActivateRequest) -> dict:
             f"Your cashback: groceries {rates['groceries']}%, "
             f"transport {rates['transport']}%, other {rates['other']}%."
         ),
+    }
+
+
+@app.post("/card/credit-limit")
+async def card_credit_limit(req: ActivateRequest) -> dict:
+    product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product["kind"] != "credit_card":
+        raise HTTPException(status_code=400, detail="Product is not a credit card")
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(f"{BACKEND_URL}/clients/{req.client_id}")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Backend unavailable")
+    customer = resp.json()
+
+    income = customer.get("income_rub", 0)
+    risk = customer.get("risk_score", 1.0)
+    segment = customer.get("segment", "mass")
+
+    # Eligibility checks
+    reasons: list[str] = []
+    if customer.get("has_overdue_history"):
+        reasons.append("overdue payment history")
+    if risk > CREDIT_CARD_MAX_RISK:
+        reasons.append(f"risk score too high ({risk:.2f})")
+    if income < CREDIT_CARD_MIN_INCOME:
+        reasons.append(f"income below minimum ({income} < {CREDIT_CARD_MIN_INCOME})")
+
+    if reasons:
+        return {
+            "client_id": req.client_id,
+            "product_id": req.product_id,
+            "approved": False,
+            "limit_rub": 0,
+            "reasons": reasons,
+            "customer_name": customer.get("name"),
+        }
+
+    # Calculate limit: income × segment multiplier, reduced by risk
+    multiplier = CREDIT_CARD_LIMIT_MULTIPLIER.get(segment, 2.0)
+    raw_limit = income * multiplier
+    # Risk adjustment: reduce limit proportionally (risk 0 → full limit, risk 0.6 → 40% reduction)
+    risk_factor = 1.0 - risk
+    limit = round(raw_limit * risk_factor / 10_000) * 10_000  # round to nearest 10k
+
+    return {
+        "client_id": req.client_id,
+        "product_id": req.product_id,
+        "approved": True,
+        "limit_rub": limit,
+        "rate_pct": product["rate_pct"],
+        "grace_period_days": product["grace_period_days"],
+        "segment": segment,
+        "reasons": [],
+        "customer_name": customer.get("name"),
     }
 
 

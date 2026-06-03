@@ -14,6 +14,7 @@ Product catalogue. Returns `{total, items: [products]}`. Each product has at lea
 
 Current products:
 - `card-debit-cashback` — Debit card with cashback (groceries/transport/other, rates vary by segment)
+- `card-credit` — Credit card, 24.9%, 55-day grace period
 - `deposit-base` — Term deposit, 14%
 - `credit-consumer` — Consumer loan, 18.9%
 
@@ -40,6 +41,28 @@ Returns:
 ```
 `approved` is `true` or `false`. `reasons` lists why a decision was declined (empty on approval).
 HTTP 404 if client or product is not found. HTTP 400 if product is not a credit product.
+
+### POST /card/credit-limit
+
+Credit card limit decision for a customer. Request body: `{ "client_id": "<string>", "product_id": "card-credit" }`
+
+Returns a personalised credit limit based on income × segment multiplier, adjusted down by risk score. Limit is rounded to the nearest 10,000 rubles.
+
+```json
+{
+  "client_id": "c-01000",
+  "product_id": "card-credit",
+  "approved": true,
+  "limit_rub": 90000,
+  "rate_pct": 24.9,
+  "grace_period_days": 55,
+  "segment": "mass",
+  "reasons": [],
+  "customer_name": "Анна Козлова"
+}
+```
+
+Declined if: overdue history, risk score > 0.60, or income < 25,000 rubles. On decline, `approved: false`, `limit_rub: 0`, `reasons` lists why.
 
 ### POST /card/activate
 
