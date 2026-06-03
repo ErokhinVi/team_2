@@ -123,6 +123,21 @@ Move accumulated cashback to the customer's main balance. Accepts
 Returns `{status, client_id, redeemed_rub, new_balance_rub,
 cashback_balance_rub, tx_id, ts, source}`.
 
+### GET /api/referrals/{client_id}
+Member-Get-Member invite screen state. Returns the customer's referral code
+(currently their client_id, uppercased), the friends they've invited so far,
+who invited them (if anyone), and totals: `{client_id, customer_name, code,
+share_text, invited: [{invitee_id, invitee_name, at, bonus_rub, bonus_paid}],
+invited_count, invited_by, inviter_name, bonus_per_referral_rub,
+bonus_earned_rub}`.
+
+### POST /api/referrals/redeem
+Redeem a friend's code. Accepts `{client_id, code}`. Returns
+`{status: "ok"|"error", inviter_id, inviter_name, bonus_rub, bonus_paid,
+reason?}` — `reason` values: `code_required`, `self_referral`, `code_invalid`,
+`already_used`, `not_allowed`. Best-effort credits both sides via backend
+`POST /clients/{id}/credit-cashback` if that endpoint exists.
+
 ### POST /api/credit-apply
 Заявка на кредит. Принимает JSON `{client_id, product_id, amount_rub}`.
 Orchestration: fetches customer profile from backend, then asks cib
@@ -133,8 +148,8 @@ amount_rub, max_amount_rub, reason, source}`.
 
 ## Кого я зову у соседей
 
-- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /clients/{id}/deposits`, `POST /deposits` (fallback), `GET /cashback/{client_id}`, `POST /api/cashback/redeem`, `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/recommendations` (fallback for offers)
-- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /deposit/withdraw`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide`, `GET /clients/{id}/next-best-offers` (packaged offers for the home screen)
+- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /clients/{id}/deposits`, `POST /deposits` (fallback), `GET /cashback/{client_id}`, `POST /api/cashback/redeem`, `POST /clients/{id}/credit-cashback` (when shipped — payload `{amount_rub, source}`, used to pay out MGM referral bonus to both parties), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/recommendations` (fallback for offers)
+- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /deposit/withdraw`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide`, `GET /clients/{id}/next-best-offers`, `POST /referral/validate` (when shipped — payload `{inviter_id, invitee_id}`, returns `{allowed, bonus_rub, reasons}` so the referral bonus can vary by segment and eligibility rules)
 
 ## Где работает блок локально
 

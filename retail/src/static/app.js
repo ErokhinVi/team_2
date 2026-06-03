@@ -152,6 +152,8 @@
         icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>') },
       { key: "mortgage",   i18n: "mortgage_tab",
         icon: ICON('<path d="M3 11 12 4l9 7"/><path d="M5 10.5V20h5v-5h4v5h5v-9.5"/><circle cx="14.5" cy="13" r="1"/>') },
+      { key: "invite",     i18n: "invite_tab",
+        icon: ICON('<circle cx="8.5" cy="9" r="3"/><path d="M3 19.5c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/><circle cx="17" cy="8" r="2.2"/><path d="M14.6 13.6c.7-.4 1.5-.6 2.4-.6 1.9 0 3.3 1 4 3"/>') },
     ];
 
     // ---- i18n ----
@@ -313,6 +315,31 @@
         locked_title:     "Профиль занят",
         locked_body:      "Сейчас с этим клиентом работает",
         locked_retry:     "Повторить",
+        invite_tab:       "Друзья",
+        loading_invite:   "Загрузка приглашений...",
+        invite_title:     "Приведи друга",
+        invite_subtitle:  "Поделитесь кодом — оба получите бонус",
+        your_code:        "Ваш код",
+        copy_code:        "Скопировать",
+        copied:           "Скопировано!",
+        share:            "Поделиться",
+        share_subject:    "Self-Driving Raif — приглашение",
+        bonus_each:       "Бонус для каждого",
+        invited_friends:  "Приглашённые друзья",
+        no_invited:       "Вы пока никого не приглашали",
+        invited_by_label: "Вас пригласил",
+        enter_code_title: "У вас есть код друга?",
+        enter_code_label: "Введите код",
+        redeem_btn:       "Применить",
+        invite_ok:        "Бонус активирован",
+        invite_paid:      "Бонус начислен",
+        invite_pending:   "Бонус будет начислен позже",
+        invite_err_code_required: "Введите код",
+        invite_err_self:  "Нельзя использовать свой код",
+        invite_err_invalid: "Код не найден",
+        invite_err_used:  "Вы уже использовали код",
+        invite_err_not_allowed: "Использование кода не разрешено",
+        total_bonus:      "Заработано на приглашениях",
         investor_profile_label: "Инвестиционный профиль",
         not_suitable:     "Не подходит вашему профилю",
         min_investment:   "Минимум",
@@ -495,6 +522,31 @@
         locked_title:     "Profile in use",
         locked_body:      "Currently being used by",
         locked_retry:     "Try again",
+        invite_tab:       "Invite",
+        loading_invite:   "Loading invitations...",
+        invite_title:     "Invite a friend",
+        invite_subtitle:  "Share your code — both of you get a bonus",
+        your_code:        "Your code",
+        copy_code:        "Copy",
+        copied:           "Copied!",
+        share:            "Share",
+        share_subject:    "Self-Driving Raif — invitation",
+        bonus_each:       "Bonus for each",
+        invited_friends:  "Invited friends",
+        no_invited:       "You haven't invited anyone yet",
+        invited_by_label: "Invited by",
+        enter_code_title: "Got a friend's code?",
+        enter_code_label: "Enter code",
+        redeem_btn:       "Apply",
+        invite_ok:        "Bonus activated",
+        invite_paid:      "Bonus credited",
+        invite_pending:   "Bonus will be credited later",
+        invite_err_code_required: "Please enter a code",
+        invite_err_self:  "Can't use your own code",
+        invite_err_invalid: "Code not found",
+        invite_err_used:  "You've already used a code",
+        invite_err_not_allowed: "Code use is not allowed",
+        total_bonus:      "Earned from referrals",
         investor_profile_label: "Investor profile",
         not_suitable:     "Not suitable for your profile",
         min_investment:   "Minimum",
@@ -545,6 +597,7 @@
         loadBrokerage(opt.value);
         loadMortgage(opt.value);
         loadOffers(opt.value);
+        loadInvite(opt.value);
       }
       if (productsData.length) renderProducts();
     }
@@ -571,6 +624,7 @@
     const brokerageContainer = document.getElementById("brokerage-container");
     const mortgageContainer = document.getElementById("mortgage-container");
     const offersContainer = document.getElementById("offers-container");
+    const inviteContainer = document.getElementById("invite-container");
 
     // Helper: simulate a tap on a tab (used by offer CTAs)
     function switchTab(key) {
@@ -598,6 +652,7 @@
         if (opt && btn.dataset.tab === "invest") loadInvest(opt.value);
         if (opt && btn.dataset.tab === "brokerage") loadBrokerage(opt.value);
         if (opt && btn.dataset.tab === "mortgage") loadMortgage(opt.value);
+        if (opt && btn.dataset.tab === "invite") loadInvite(opt.value);
       });
     });
 
@@ -645,9 +700,138 @@
       loadBrokerage(opt.value);
       loadMortgage(opt.value);
       loadOffers(opt.value);
+      loadInvite(opt.value);
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
+
+    // ---- Member-Get-Member (Invite tab) ----
+    async function loadInvite(clientId) {
+      try {
+        const r = await fetch(`/api/referrals/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        renderInvite(await r.json());
+      } catch (e) {
+        inviteContainer.innerHTML = `<div class="empty">${t("error")}</div>`;
+      }
+    }
+
+    function renderInvite(d) {
+      const code = d.code || "";
+      const inviterLine = d.invited_by
+        ? `<div class="invite-inviter">${t("invited_by_label")}: <b>${d.inviter_name || d.invited_by}</b></div>`
+        : "";
+
+      const friendsHtml = (d.invited && d.invited.length)
+        ? d.invited.map(f => {
+            const status = f.bonus_paid ? t("invite_paid") : t("invite_pending");
+            return `<div class="friend-row">
+              <div>
+                <div class="fr-name">${f.invitee_name}</div>
+                <div class="fr-sub">${status}</div>
+              </div>
+              <div class="fr-bonus">+${fmt.format(f.bonus_rub)} ₽</div>
+            </div>`;
+          }).join("")
+        : `<div class="empty" style="padding:18px 0">${t("no_invited")}</div>`;
+
+      const redeemHtml = d.invited_by
+        ? ""
+        : `<div class="section-title" style="margin-top:18px">${t("enter_code_title")}</div>
+           <form id="redeem-form" autocomplete="off">
+             <div class="form-row">
+               <label>${t("enter_code_label")}</label>
+               <input name="code" type="text" placeholder="C-01234" autocapitalize="characters" />
+             </div>
+             <button class="btn primary" type="submit">${t("redeem_btn")}</button>
+           </form>
+           <div id="redeem-result"></div>`;
+
+      inviteContainer.innerHTML = `
+        <div class="invite-hero">
+          <div class="ih-title">${t("invite_title")}</div>
+          <div class="ih-subtitle">${t("invite_subtitle")}</div>
+          <div class="ih-code">${code}</div>
+          <div class="ih-actions">
+            <button class="btn primary" id="copy-code">${t("copy_code")}</button>
+            <button class="btn share-btn" id="share-code">${t("share")}</button>
+          </div>
+          <div class="ih-stats">
+            <div><span>${t("invited_friends")}</span><b>${d.invited_count}</b></div>
+            <div><span>${t("bonus_each")}</span><b>${fmt.format(d.bonus_per_referral_rub)} ₽</b></div>
+            <div><span>${t("total_bonus")}</span><b>${fmt.format(d.bonus_earned_rub)} ₽</b></div>
+          </div>
+          ${inviterLine}
+        </div>
+
+        <div class="section-title">${t("invited_friends")}</div>
+        <div class="friends-list">${friendsHtml}</div>
+
+        ${redeemHtml}
+      `;
+
+      // Copy to clipboard
+      const copyBtn = document.getElementById("copy-code");
+      copyBtn.addEventListener("click", async () => {
+        try { await navigator.clipboard.writeText(code); } catch (e) {}
+        const orig = copyBtn.textContent;
+        copyBtn.textContent = t("copied");
+        setTimeout(() => { copyBtn.textContent = orig; }, 1400);
+      });
+
+      // Share via Web Share API where available, else fall back to copying the share text.
+      const shareBtn = document.getElementById("share-code");
+      shareBtn.addEventListener("click", async () => {
+        const text = d.share_text || `Use my code ${code}`;
+        if (navigator.share) {
+          try { await navigator.share({ title: t("share_subject"), text }); return; } catch (e) {}
+        }
+        try { await navigator.clipboard.writeText(text); } catch (e) {}
+        shareBtn.textContent = t("copied");
+        setTimeout(() => { shareBtn.textContent = t("share"); }, 1400);
+      });
+
+      const form = document.getElementById("redeem-form");
+      if (form) {
+        form.addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          const out = document.getElementById("redeem-result");
+          out.innerHTML = "";
+          const entered = (new FormData(ev.target).get("code") || "").toString().trim();
+          if (!entered) {
+            out.innerHTML = `<div class="alert error">${t("invite_err_code_required")}</div>`;
+            return;
+          }
+          try {
+            const r = await fetch("/api/referrals/redeem", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ client_id: d.client_id, code: entered }),
+            });
+            const res = await r.json();
+            if (r.ok && res.status === "ok") {
+              const tail = res.bonus_paid ? t("invite_paid") : t("invite_pending");
+              out.innerHTML = `<div class="alert ok">
+                ${t("invite_ok")}: <b>${res.inviter_name}</b><br/>
+                +${fmt.format(res.bonus_rub)} ₽ — ${tail}
+              </div>`;
+              setTimeout(() => loadInvite(d.client_id), 600);
+            } else {
+              const reason = res.reason || "error";
+              const friendly = {
+                code_required: t("invite_err_code_required"),
+                self_referral: t("invite_err_self"),
+                code_invalid:  t("invite_err_invalid"),
+                already_used:  t("invite_err_used"),
+                not_allowed:   t("invite_err_not_allowed"),
+              }[reason] || reason;
+              out.innerHTML = `<div class="alert error">${friendly}</div>`;
+            }
+          } catch (e) {
+            out.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+          }
+        });
+      }
+    }
 
     // ---- Next-best-offers (home tab) ----
     // Map an offer's product/kind to a destination tab. Anything that doesn't

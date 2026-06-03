@@ -744,4 +744,96 @@
       opacity: 0.45; cursor: not-allowed !important;
       filter: grayscale(0.4);
     }
+
+    /* ---- Invite (member-get-member) ---- */
+    .invite-hero {
+      position: relative;
+      background: linear-gradient(135deg, #ffd23a 0%, #ffc400 60%, #f5b500 100%);
+      color: var(--text);
+      border-radius: 22px;
+      padding: 22px;
+      box-shadow: 0 16px 36px rgba(255,200,0,0.32);
+      margin-bottom: 18px;
+      overflow: hidden;
+    }
+    .invite-hero::before {
+      content: ""; position: absolute;
+      top: -40px; right: -40px;
+      width: 160px; height: 160px;
+      background: rgba(255,255,255,0.45);
+      border-radius: 50%;
+      opacity: 0.6;
+    }
+    .invite-hero .ih-title {
+      font-size: 22px; font-weight: 800; letter-spacing: -0.02em;
+      position: relative;
+    }
+    .invite-hero .ih-subtitle {
+      font-size: 13px; opacity: 0.75; margin-bottom: 18px; position: relative;
+    }
+    .invite-hero .ih-code {
+      background: var(--ink); color: var(--raiff);
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+      font-size: 22px; font-weight: 700; letter-spacing: 0.14em;
+      text-align: center;
+      padding: 14px 16px;
+      border-radius: 14px;
+      margin-bottom: 14px;
+      position: relative;
+    }
+    .invite-hero .ih-actions {
+      display: flex; gap: 10px; margin-bottom: 18px;
+      position: relative;
+    }
+    .invite-hero .ih-actions .btn {
+      flex: 1; padding: 12px;
+      font-size: 14px;
+    }
+    .invite-hero .share-btn {
+      background: rgba(28,26,21,0.12); color: var(--ink);
+      box-shadow: none;
+    }
+    .invite-hero .ih-stats {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px;
+      background: rgba(255,255,255,0.4);
+      border-radius: 14px;
+      padding: 12px;
+      position: relative;
+    }
+    .invite-hero .ih-stats > div {
+      text-align: center; font-size: 11px;
+    }
+    .invite-hero .ih-stats > div span {
+      display: block; opacity: 0.65; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 4px; font-size: 9px;
+    }
+    .invite-hero .ih-stats > div b {
+      font-size: 15px; font-weight: 800;
+    }
+    .invite-hero .invite-inviter {
+      margin-top: 14px;
+      padding-top: 14px;
+      border-top: 1px solid rgba(28,26,21,0.12);
+      font-size: 12px; position: relative;
+    }
+
+    .friends-list {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 4px 16px;
+      box-shadow: 0 6px 18px rgba(40,34,20,0.06);
+    }
+    .friend-row {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--rule);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .friend-row:last-child { border-bottom: 0; }
+    .friend-row .fr-name { font-size: 14px; font-weight: 600; }
+    .friend-row .fr-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .friend-row .fr-bonus {
+      font-size: 14px; font-weight: 700; color: var(--good);
+      font-variant-numeric: tabular-nums;
+    }
   
