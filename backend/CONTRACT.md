@@ -160,6 +160,29 @@ cost_basis_rub, unrealized_pnl_rub}`. `404`, если клиента нет.
 Продукты клиента и журнал их открытий (новые сверху). Возвращает
 `{client_id, products, events_total, events: [...]}`. `404`, если клиента нет.
 
+## Рекомендации (next best offer)
+
+Аналитический инструмент: смотрим на данные клиента (доход, остаток,
+текущие продукты, риск-скор, просрочки, сегмент, возраст) и предлагаем
+продукты, которых у него ещё нет и которые ему подойдут. У каждой
+рекомендации — `score` (0..1, уместность), `reason` (причина простыми
+словами) и доп. поля (предлагаемая сумма/лимит, ожидаемая выгода).
+
+### GET /clients/{client_id}/recommendations
+Предложения для одного клиента, сильнейшие сверху. Параметр `limit`
+(по умолчанию 5). Возвращает `{client_id, name, segment, recommendations:
+[{product, title, reason, score, ...}]}`. Коды продуктов в рекомендациях:
+`deposit-12m`, `deposit-flex`, `credit_card`, `investments`,
+`consumer_credit`, `mortgage`, `premium_upgrade`, `cashback_redeem`.
+`404`, если клиента нет. cib/retail могут показать это клиенту и сразу
+провести через нужную ручку (вклад, заявку, карту).
+
+### GET /recommendations/summary
+Сводка по всему банку: для каждого продукта — скольким клиентам его стоит
+предложить и суммарный потенциал. Параметр `segment` — посчитать по одному
+сегменту. Возвращает `{clients_analysed, by_product: [{product, title,
+candidates, potential_amount_rub, potential_annual_benefit_rub}]}`.
+
 ## Кредитные карты
 
 Карта — это `{card_id, client_id, credit_limit_rub, balance_owed_rub,

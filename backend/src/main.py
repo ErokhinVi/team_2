@@ -904,3 +904,208 @@ async def list_orders(
         raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
     items = list(reversed(_orders_by_client.get(client_id, [])))[:limit]
     return {"total": len(_orders_by_client.get(client_id, [])), "items": items}
+
+
+# ---------- Рекомендации: какой продукт предложить клиенту (next best offer) ----------
+#
+# Аналитический инструмент: смотрим на данные клиента (доход, остаток на счёте,
+# текущие продукты, риск-скор, просрочки, сегмент, возраст) и предлагаем те
+# продукты, которых у него ещё нет и которые ему, вероятно, подойдут. У каждой
+# рекомендации — оценка уместности (score 0..1), причина простыми словами и,
+# где уместно, ожидаемая выгода. Пороги вынесены в константы, чтобы их легко
+# было крутить под продуктовую политику.
+
+# Депозитная ставка для оценки выгоды в рекомендации (годовых).
+RECO_DEPOSIT_RATE = 0.17
+# Остаток, выше которого деньги считаем «лежащими без дела» (кандидат на вклад).
+RECO_DEPOSIT_MIN_BALANCE = 100000
+# Остаток для гибкого накопительного счёта (порог ниже, чем у вклада).
+RECO_SAVINGS_MIN_BALANCE = 30000
+# Минимальный доход и максимальный риск для кредитных предложений.
+RECO_CARD_MIN_INCOME = 40000
+RECO_CARD_MAX_RISK = 0.5
+RECO_LOAN_MIN_INCOME = 50000
+RECO_LOAN_MAX_RISK = 0.4
+RECO_MORTGAGE_MIN_INCOME = 80000
+# Остаток/доход, при которых mass-клиенту предлагаем апгрейд до premium.
+RECO_PREMIUM_MIN_INCOME = 120000
+RECO_PREMIUM_MIN_BALANCE = 500000
+# Остаток, при котором клиенту без портфеля предлагаем инвестиции.
+RECO_INVEST_MIN_BALANCE = 150000
+_RECO_AFFLUENT = {"mass_affluent", "premium", "private", "sme"}
+
+
+def _client_state(c: dict[str, Any]) -> dict[str, Any]:
+    """Сводим всё, что знаем о клиенте, в один словарь для правил."""
+    cid = c["id"]
+    products = set(c.get("products") or [])
+    deps = _deposits_by_client.get(cid, [])
+    return {
+        "products": products,
+        "balance": int(c.get("balance_rub", 0)),
+        "income": int(c.get("income_rub", 0)),
+        "risk": float(c.get("risk_score", 0.5)),
+        "overdue": bool(c.get("has_overdue_history")),
+        "segment": c.get("segment"),
+        "age": int(c.get("age", 0)),
+        "has_active_deposit": any(d["status"] == "active" for d in deps)
+        or "deposit" in products,
+        "has_portfolio": bool(_holdings_by_client.get(cid)),
+        "has_card": bool(_cards_by_client.get(cid)) or "credit_card" in products,
+        "cashback": int(c.get("cashback_balance_rub", 0)),
+    }
+
+
+def _recommend_for_client(c: dict[str, Any]) -> list[dict[str, Any]]:
+    """Список продуктовых предложений для одного клиента, сильнейшие сверху."""
+    s = _client_state(c)
+    recs: list[dict[str, Any]] = []
+
+    # 1. Срочный вклад — много свободных денег лежит без дела.
+    if not s["has_active_deposit"] and s["balance"] >= RECO_DEPOSIT_MIN_BALANCE:
+        amount = int(round(s["balance"] * 0.6, -3))
+        benefit = int(amount * RECO_DEPOSIT_RATE)
+        recs.append({
+            "product": "deposit-12m",
+            "title": "Срочный вклад на 12 месяцев",
+            "reason": f"на счёте лежит {s['balance']} ₽ почти без дохода — "
+                      f"вклад под {int(RECO_DEPOSIT_RATE * 100)}% принесёт "
+                      f"около {benefit} ₽ в год",
+            "score": round(min(1.0, s["balance"] / 500000), 2),
+            "suggested_amount_rub": amount,
+            "est_annual_benefit_rub": benefit,
+        })
+    # 2. Гибкий накопительный счёт — денег поменьше, но тоже лежат.
+    elif not s["has_active_deposit"] and s["balance"] >= RECO_SAVINGS_MIN_BALANCE \
+            and "savings" not in s["products"]:
+        recs.append({
+            "product": "deposit-flex",
+            "title": "Гибкий накопительный счёт",
+            "reason": f"{s['balance']} ₽ можно отложить с процентом и снимать "
+                      f"в любой момент без потерь",
+            "score": round(min(0.7, s["balance"] / 300000), 2),
+            "suggested_amount_rub": int(round(s["balance"] * 0.4, -3)),
+        })
+
+    # 3. Кредитная карта — нет карты, доход стабильный, без просрочек.
+    if not s["has_card"] and not s["overdue"] \
+            and s["income"] >= RECO_CARD_MIN_INCOME and s["risk"] <= RECO_CARD_MAX_RISK:
+        limit = _derive_limit(c)
+        recs.append({
+            "product": "credit_card",
+            "title": "Кредитная карта",
+            "reason": f"доход {s['income']} ₽/мес и чистая история — "
+                      f"одобрим лимит около {limit} ₽",
+            "score": round(min(1.0, (1 - s["risk"]) * (s["income"] / 100000)), 2),
+            "suggested_limit_rub": limit,
+        })
+
+    # 4. Инвестиции — есть свободные деньги, но нет портфеля.
+    if not s["has_portfolio"] and s["balance"] >= RECO_INVEST_MIN_BALANCE \
+            and s["segment"] in _RECO_AFFLUENT:
+        recs.append({
+            "product": "investments",
+            "title": "Инвестиционный портфель",
+            "reason": f"{s['balance']} ₽ свободных средств можно вложить в "
+                      f"облигации и фонды и обогнать инфляцию",
+            "score": round(min(0.9, s["balance"] / 600000), 2),
+        })
+
+    # 5. Потребительский кредит — доход есть, риск низкий, продукта нет.
+    if "consumer_credit" not in s["products"] and not s["overdue"] \
+            and s["income"] >= RECO_LOAN_MIN_INCOME and s["risk"] <= RECO_LOAN_MAX_RISK:
+        recs.append({
+            "product": "consumer_credit",
+            "title": "Потребительский кредит",
+            "reason": f"стабильный доход {s['income']} ₽/мес и низкий риск — "
+                      f"быстрое одобрение",
+            "score": round(min(0.8, (1 - s["risk"]) * (s["income"] / 120000)), 2),
+        })
+
+    # 6. Ипотека — высокий доход, без просрочек, affluent-сегмент.
+    if "mortgage" not in s["products"] and not s["overdue"] \
+            and s["income"] >= RECO_MORTGAGE_MIN_INCOME \
+            and s["segment"] in _RECO_AFFLUENT and s["age"] <= 60:
+        recs.append({
+            "product": "mortgage",
+            "title": "Ипотека",
+            "reason": f"доход {s['income']} ₽/мес позволяет обслуживать "
+                      f"ипотеку — подберём программу",
+            "score": round(min(0.85, s["income"] / 250000), 2),
+        })
+
+    # 7. Апгрейд до premium — mass-клиент с премиальными деньгами/доходом.
+    if s["segment"] == "mass" \
+            and (s["income"] >= RECO_PREMIUM_MIN_INCOME
+                 or s["balance"] >= RECO_PREMIUM_MIN_BALANCE):
+        recs.append({
+            "product": "premium_upgrade",
+            "title": "Перевод в премиальный сегмент",
+            "reason": "доход и остатки уже премиального уровня — "
+                      "персональный менеджер и улучшенные условия",
+            "score": 0.6,
+        })
+
+    # 8. Потратить накопленный кешбэк — крупный неиспользованный баланс.
+    if s["cashback"] >= 3000:
+        recs.append({
+            "product": "cashback_redeem",
+            "title": "Потратить накопленный кешбэк",
+            "reason": f"накоплено {s['cashback']} ₽ кешбэка — можно зачислить "
+                      f"на счёт прямо сейчас",
+            "score": 0.4,
+            "available_cashback_rub": s["cashback"],
+        })
+
+    recs.sort(key=lambda r: r["score"], reverse=True)
+    return recs
+
+
+@app.get("/clients/{client_id}/recommendations")
+async def client_recommendations(
+    client_id: str, limit: int = Query(default=5, ge=1, le=20),
+) -> dict:
+    """Продуктовые предложения для клиента на основе его данных, сильнейшие
+    сверху. Возвращает `{client_id, name, segment, recommendations: [...]}`.
+    Рекомендация — `{product, title, reason, score, ...доп. поля}`."""
+    c = _clients_by_id.get(client_id)
+    if not c:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    recs = _recommend_for_client(c)[:limit]
+    return {
+        "client_id": client_id,
+        "name": c.get("name"),
+        "segment": c.get("segment"),
+        "recommendations": recs,
+    }
+
+
+@app.get("/recommendations/summary")
+async def recommendations_summary(
+    segment: str | None = Query(default=None),
+) -> dict:
+    """Сводка по всему банку: для каждого продукта — скольким клиентам его
+    стоит предложить и какой суммарный потенциал (где считается). Помогает
+    решить, какую фичу продвигать. Параметр `segment` — посчитать только по
+    одному сегменту. Возвращает `{clients_analysed, by_product: [...]}`."""
+    by_product: dict[str, dict[str, Any]] = {}
+    analysed = 0
+    for c in _clients:
+        if segment and c.get("segment") != segment:
+            continue
+        analysed += 1
+        for r in _recommend_for_client(c):
+            row = by_product.setdefault(r["product"], {
+                "product": r["product"],
+                "title": r["title"],
+                "candidates": 0,
+                "potential_amount_rub": 0,
+                "potential_annual_benefit_rub": 0,
+            })
+            row["candidates"] += 1
+            row["potential_amount_rub"] += int(r.get("suggested_amount_rub", 0))
+            row["potential_annual_benefit_rub"] += int(
+                r.get("est_annual_benefit_rub", 0))
+    breakdown = sorted(by_product.values(),
+                       key=lambda r: r["candidates"], reverse=True)
+    return {"clients_analysed": analysed, "by_product": breakdown}
