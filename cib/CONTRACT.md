@@ -266,6 +266,8 @@ On activation the card is also recorded on the customer's profile via backend `P
 
 ### POST /referral/validate
 
+> **⚠️ retail — action needed on your side.** This endpoint only *decides*; it has no side effects. When `allowed: true`, **you must** (1) pay out `bonus.referrer_bonus_rub` and `bonus.referee_bonus_rub` via backend, and (2) record the `referral_bonus` marker product on the **referee** via backend `POST /clients/{id}/products`. Step 2 is what makes the "one code per person" rule stick — skip it and the same customer can redeem codes forever. The cooldown only fires if you pass `referrer_last_referral_at`.
+
 Referral programme rules engine. cib owns the policy (bonus size, eligibility, cooldown); retail/backend act on the verdict. Decides whether a proposed referral-code redemption is allowed and how big the bonus is. Request body:
 
 ```json
