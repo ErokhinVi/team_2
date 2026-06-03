@@ -129,7 +129,11 @@ Personalised next-best-offers for the home screen. Proxies CIB
 `GET /clients/{id}/recommendations` if CIB is unreachable. Returns
 `{client_id, name, segment, total, offers: [...], source}`. Each offer
 carries CIB's packaging (`cib.kind`, `cib.product_id`, `cib.terms`,
-`cib.action`) plus backend's `product, title, reason, score`.
+`cib.action`) plus backend's `product, title, reason, score`. When a
+customer is pre-approved, the `cib` block also includes a `pre_approved`
+object with `headline`, `amount_rub`/`limit_rub`/`max_loan_rub`, and
+`rate_pct` — the UI shows these as prominent green banners on the home
+screen.
 
 ### POST /api/deposit-withdraw
 Close a deposit and return funds + interest. Accepts `{deposit_id, early?}`.
@@ -165,12 +169,23 @@ Orchestration: fetches customer profile from backend, then asks cib
 `POST /api/credit-decision` for the verdict. If cib endpoint is not yet
 available, uses a simple heuristic (income >= 30k, no overdue, amount <= 12x income).
 Возвращает `{status: "approved"|"declined", client_id, product_id,
-amount_rub, max_amount_rub, reason, source}`.
+amount_rub, max_amount_rub, rate_pct, base_rate_pct, reason, source}`.
+On approval, `rate_pct` is the customer's personalised risk-based rate and
+`base_rate_pct` is the list rate (when CIB provides them).
+
+### POST /api/credit/refinance
+Refinancing application. Accepts `{client_id, current_balance_rub,
+current_rate_pct, term_months (default 36)}`. Proxies CIB
+`POST /credit/refinance`. Returns `{approved, beneficial, current_rate_pct,
+new_rate_pct, balance_rub, term_months, old_monthly_payment_rub,
+new_monthly_payment_rub, monthly_saving_rub, total_saving_rub, reasons,
+customer_name, source}`. The UI shows the monthly saving and total saving
+to the customer, and flags when refinancing isn't beneficial.
 
 ## Кого я зову у соседей
 
 - backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /clients/{id}/deposits`, `POST /deposits` (fallback), `GET /cashback/{client_id}`, `POST /api/cashback/redeem`, `POST /clients/{id}/credit-cashback` (when shipped — payload `{amount_rub, source}`, used to pay out MGM referral bonus to both parties), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/recommendations` (fallback for offers)
-- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /deposit/withdraw`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide`, `GET /clients/{id}/next-best-offers`, `POST /car-loan/decide` (when shipped — payload `{client_id, car_price_rub, down_payment_rub, term_years}`, returns the same decision shape as `/mortgage/decide`; CIB records the loan on the customer profile on approval), `POST /referral/validate` (when shipped)
+- cib: `GET /products`, `POST /credit/decide`, `POST /credit/refinance`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /deposit/withdraw`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide`, `GET /clients/{id}/next-best-offers` (includes `pre_approved` blocks on loan/card/mortgage offers), `GET /clients/{id}/pre-approved`, `POST /car-loan/decide` (when shipped — payload `{client_id, car_price_rub, down_payment_rub, term_years}`, returns the same decision shape as `/mortgage/decide`; CIB records the loan on the customer profile on approval), `POST /referral/validate` (when shipped)
 
 ## Где работает блок локально
 
