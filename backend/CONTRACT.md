@@ -213,6 +213,18 @@ investment_accounts_opened, product_openings_logged, openings_by_product}, note}
 [{source, amount_rub}], events_total, recent_events: [{source, amount_rub,
 client_id, note, ts}]}`. Копится с момента запуска.
 
+### GET /analytics/overview
+Сводные показатели клиентской базы (для дашборда). Возвращает
+`{clients_total, by_segment, total_balance_rub, avg_balance_rub,
+avg_income_rub, total_cashback_rub, deposits_active, deposits_held_rub,
+credit_cards, credit_card_debt_rub, investors, assets_under_management_rub,
+bank_revenue_rub}`.
+
+### GET /dashboard  (он же GET /)
+Готовая HTML-страница с аналитикой по клиентской базе — открывается в браузере,
+тянет живые данные из `/analytics/*` и `/recommendations/summary`. Это
+страница для человека, а не API; соседям дёргать не нужно.
+
 ## Кредитные карты
 
 Карта — это `{card_id, client_id, credit_limit_rub, balance_owed_rub,

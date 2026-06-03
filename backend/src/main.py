@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 
 TEAM_NAME = os.environ.get("TEAM_NAME", "team")
 COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local")
@@ -1283,3 +1284,177 @@ async def revenue_summary(
         "events_total": len(_revenue_events),
         "recent_events": list(reversed(_revenue_events))[:limit],
     }
+
+
+@app.get("/analytics/overview")
+async def analytics_overview() -> dict:
+    """Сводные показатели клиентской базы для дашборда: число клиентов,
+    разбивка по сегментам, остатки, вклады, карты, инвесторы, доход банка."""
+    total = len(_clients)
+    by_segment: dict[str, int] = {}
+    total_balance = 0
+    total_income = 0
+    total_cashback = 0
+    for c in _clients:
+        seg = c.get("segment") or "?"
+        by_segment[seg] = by_segment.get(seg, 0) + 1
+        total_balance += int(c.get("balance_rub", 0))
+        total_income += int(c.get("income_rub", 0))
+        total_cashback += int(c.get("cashback_balance_rub", 0))
+    active_deposits = [d for d in _deposits if d["status"] == "active"]
+    deposits_held = sum(int(d["amount_rub"]) for d in active_deposits)
+    cards_owed = sum(int(c["balance_owed_rub"]) for c in _credit_cards)
+    aum = 0
+    for holdings in _holdings_by_client.values():
+        for h in holdings.values():
+            aum += int(_instruments.get(h["symbol"], {}).get("price_rub", 0)) \
+                * int(h["qty"])
+    investors = sum(1 for h in _holdings_by_client.values() if h)
+    return {
+        "clients_total": total,
+        "by_segment": dict(sorted(by_segment.items(),
+                                  key=lambda kv: kv[1], reverse=True)),
+        "total_balance_rub": total_balance,
+        "avg_balance_rub": int(total_balance / total) if total else 0,
+        "avg_income_rub": int(total_income / total) if total else 0,
+        "total_cashback_rub": total_cashback,
+        "deposits_active": len(active_deposits),
+        "deposits_held_rub": deposits_held,
+        "credit_cards": len(_credit_cards),
+        "credit_card_debt_rub": cards_owed,
+        "investors": investors,
+        "assets_under_management_rub": aum,
+        "bank_revenue_rub": sum(_bank_revenue_by_source.values()),
+    }
+
+
+_DASHBOARD_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Customer Analytics — Raiffeisen</title>
+<style>
+  :root { --y:#fee600; --ink:#1a1a1a; --muted:#6b7280; --card:#fff; --bg:#f4f5f7; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+         background:var(--bg); color:var(--ink); }
+  header { background:var(--ink); color:#fff; padding:18px 28px; display:flex;
+           align-items:center; justify-content:space-between; }
+  header .dot { width:14px; height:14px; background:var(--y); border-radius:50%;
+                display:inline-block; margin-right:10px; }
+  header h1 { font-size:18px; margin:0; font-weight:600; }
+  header .sub { color:#9ca3af; font-size:12px; margin-top:2px; }
+  button { background:var(--y); border:0; padding:9px 16px; border-radius:8px;
+           font-weight:600; cursor:pointer; }
+  main { padding:24px 28px; max-width:1200px; margin:0 auto; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr));
+           gap:16px; margin-bottom:8px; }
+  .tile { background:var(--card); border-radius:12px; padding:18px 20px;
+          box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .tile .label { color:var(--muted); font-size:12px; text-transform:uppercase;
+                 letter-spacing:.04em; }
+  .tile .value { font-size:26px; font-weight:700; margin-top:6px; }
+  .tile .hint { color:var(--muted); font-size:12px; margin-top:4px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:16px; }
+  @media (max-width:820px){ .grid2{ grid-template-columns:1fr; } }
+  .panel { background:var(--card); border-radius:12px; padding:20px;
+           box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .panel h2 { font-size:14px; margin:0 0 14px; }
+  .bar { display:flex; align-items:center; gap:10px; margin:8px 0; font-size:13px; }
+  .bar .name { width:150px; flex:none; color:#374151; }
+  .bar .track { flex:1; background:#eef0f3; border-radius:6px; height:18px;
+                overflow:hidden; }
+  .bar .fill { background:var(--y); height:100%; border-radius:6px; }
+  .bar .num { width:120px; flex:none; text-align:right; color:#111; font-variant-numeric:tabular-nums; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th,td { text-align:left; padding:8px 6px; border-bottom:1px solid #eef0f3; }
+  th { color:var(--muted); font-weight:600; }
+  td.r,th.r { text-align:right; font-variant-numeric:tabular-nums; }
+  .err { color:#b91c1c; font-size:13px; }
+</style>
+</head>
+<body>
+<header>
+  <div><h1><span class="dot"></span>Customer Analytics</h1>
+       <div class="sub" id="meta">loading…</div></div>
+  <button onclick="load()">Refresh</button>
+</header>
+<main>
+  <div class="tiles" id="tiles"></div>
+  <div class="grid2">
+    <div class="panel"><h2>Customers by segment</h2><div id="segments"></div></div>
+    <div class="panel"><h2>New customers by year</h2><div id="years"></div></div>
+  </div>
+  <div class="grid2">
+    <div class="panel"><h2>Feature reach — how many customers hold each</h2>
+         <div id="features"></div></div>
+    <div class="panel"><h2>Growth opportunities — who to offer what</h2>
+         <div id="opps"></div></div>
+  </div>
+</main>
+<script>
+const fmt = n => (n||0).toLocaleString('en-US');
+const rub = n => fmt(Math.round(n)) + ' \\u20bd';
+async function getJSON(u){ const r = await fetch(u); if(!r.ok) throw new Error(u+' '+r.status); return r.json(); }
+function bars(el, rows, max){
+  el.innerHTML = rows.map(r => {
+    const w = max>0 ? Math.max(2, Math.round(100*r.v/max)) : 0;
+    return '<div class="bar"><div class="name">'+r.name+'</div>'+
+           '<div class="track"><div class="fill" style="width:'+w+'%"></div></div>'+
+           '<div class="num">'+r.label+'</div></div>';
+  }).join('');
+}
+function tile(label,value,hint){
+  return '<div class="tile"><div class="label">'+label+'</div>'+
+         '<div class="value">'+value+'</div>'+
+         (hint?'<div class="hint">'+hint+'</div>':'')+'</div>';
+}
+async function load(){
+  try{
+    const [ov, feat, opp] = await Promise.all([
+      getJSON('/analytics/overview'),
+      getJSON('/analytics/feature-acquisition'),
+      getJSON('/recommendations/summary'),
+    ]);
+    document.getElementById('meta').textContent =
+      ov.clients_total + ' customers · live data';
+    document.getElementById('tiles').innerHTML =
+      tile('Customers', fmt(ov.clients_total), ov.investors+' investing') +
+      tile('Money on accounts', rub(ov.total_balance_rub), 'avg '+rub(ov.avg_balance_rub)) +
+      tile('Held in deposits', rub(ov.deposits_held_rub), ov.deposits_active+' active') +
+      tile('Assets under mgmt', rub(ov.assets_under_management_rub), ov.investors+' investors') +
+      tile('Bank revenue', rub(ov.bank_revenue_rub), 'since launch') +
+      tile('Cashback outstanding', rub(ov.total_cashback_rub), 'owed to customers');
+
+    const segs = Object.entries(ov.by_segment).map(([k,v])=>({name:k,v:v,label:fmt(v)}));
+    bars(document.getElementById('segments'), segs, Math.max(...segs.map(s=>s.v)));
+
+    const yrs = Object.entries(feat.acquisition_by_year).map(([k,v])=>({name:k,v:v,label:fmt(v)}));
+    bars(document.getElementById('years'), yrs, Math.max(...yrs.map(s=>s.v)));
+
+    const ff = feat.by_feature.map(f=>({name:f.title,v:f.clients,label:fmt(f.clients)+' ('+f.share_pct+'%)'}));
+    bars(document.getElementById('features'), ff, Math.max(...ff.map(s=>s.v)));
+
+    const rows = opp.by_product.slice(0,8).map(p =>
+      '<tr><td>'+p.title+'</td><td class="r">'+fmt(p.candidates)+'</td>'+
+      '<td class="r">'+(p.potential_amount_rub?rub(p.potential_amount_rub):'—')+'</td></tr>').join('');
+    document.getElementById('opps').innerHTML =
+      '<table><tr><th>Product</th><th class="r">Candidates</th><th class="r">Potential</th></tr>'+rows+'</table>';
+  }catch(e){
+    document.getElementById('meta').innerHTML = '<span class="err">'+e.message+'</span>';
+  }
+}
+load();
+</script>
+</body>
+</html>"""
+
+
+@app.get("/", response_class=HTMLResponse)
+@app.get("/dashboard", response_class=HTMLResponse)
+async def dashboard() -> str:
+    """Готовая веб-страница с аналитикой по клиентской базе. Открывается в
+    браузере, тянет живые данные из /analytics/* и /recommendations/summary.
+    Доступна и в корне (`/`), и по `/dashboard`."""
+    return _DASHBOARD_HTML
