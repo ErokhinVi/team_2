@@ -58,13 +58,28 @@ async def card_info(client_id: str) -> dict:
             "salary":          0.0,
         }
 
+    # Real cashback balance from backend (accumulated, redeemable).
+    cb_data = await try_get(BACKEND_URL, f"/cashback/{client_id}")
+    cashback_balance_rub = (cb_data or {}).get(
+        "cashback_balance_rub",
+        customer.get("cashback_balance_rub", 0),
+    )
+
+    # Per-transaction cashback: prefer the real accrued value from backend
+    # (`cashback_rub` field on each tx). Fall back to local computation only
+    # for older transactions that don't carry it.
     total_cashback = 0.0
     cashback_txs = []
     for tx in txs:
         tx_type = tx.get("type", "")
         amount = abs(tx.get("amount_rub", 0))
-        rate = rates.get(tx_type, 0.0)
-        cashback = round(amount * rate, 2)
+        real_cb = tx.get("cashback_rub")
+        if real_cb and real_cb > 0:
+            cashback = round(real_cb, 2)
+            rate = round(cashback / amount, 4) if amount else 0.0
+        else:
+            rate = rates.get(tx_type, 0.0)
+            cashback = round(amount * rate, 2)
         if cashback > 0:
             total_cashback += cashback
             cashback_txs.append({
@@ -84,6 +99,7 @@ async def card_info(client_id: str) -> dict:
         "segment": segment,
         "card_number_masked": f"**** **** **** {card_suffix}",
         "balance_rub": customer.get("balance_rub", 0),
+        "cashback_balance_rub": cashback_balance_rub,
         "total_cashback_rub": round(total_cashback, 2),
         "cashback_transactions": cashback_txs,
         "cashback_rates_pct": cashback_rates_pct,
@@ -91,6 +107,22 @@ async def card_info(client_id: str) -> dict:
         "rates": rates,
         "rates_source": rates_source,
     }
+
+
+@router.post("/api/cashback-redeem")
+async def cashback_redeem(payload: dict) -> dict:
+    """Move accumulated cashback to the customer's main balance."""
+    client_id = payload.get("client_id")
+    amount = payload.get("amount_rub", 0)
+    if not client_id or amount <= 0:
+        raise HTTPException(status_code=400, detail="client_id and positive amount_rub required")
+
+    backend = await try_post(BACKEND_URL, "/api/cashback/redeem",
+                             {"client_id": client_id, "amount_rub": amount})
+    if backend:
+        return {**backend, "source": "backend"}
+
+    raise HTTPException(status_code=502, detail="Cashback redemption is unavailable")
 
 
 @router.get("/api/credit-card/{client_id}")

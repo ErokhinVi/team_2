@@ -12,7 +12,8 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from src import brokerage, cards, core, investments, loans, mortgages, savings, transfers
+from src import (brokerage, cards, core, investments, loans, mortgages,
+                 offers, savings, transfers)
 from src.services import BACKEND_URL, CIB_URL, COMMIT, STATIC_DIR, TEAM_NAME
 
 app = FastAPI(title="retail — мобильный банк", version="2.0.0")
@@ -36,6 +37,7 @@ async def index() -> str:
 # Domain routers — adding a feature = add a module and include it here.
 for _router in (
     core.router,
+    offers.router,
     transfers.router,
     cards.router,
     savings.router,

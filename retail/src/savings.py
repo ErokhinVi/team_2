@@ -23,10 +23,22 @@ async def deposits_info(client_id: str) -> dict:
     total_deposited = 0
     total_interest = 0
     deposits_source = "none"
-    dep_data = await try_get(BACKEND_URL, f"/deposits/{client_id}")
+    dep_data = await try_get(BACKEND_URL, f"/clients/{client_id}/deposits")
     if dep_data:
-        existing_deposits = dep_data.get("items", [])
-        total_deposited = sum(d.get("amount_rub", 0) for d in existing_deposits)
+        # Backend fields: deposit_id, product, amount_rub, term_months, rate_pct,
+        # status, opened_at, matures_at. Normalise so the UI gets product_name
+        # and the flag whether the deposit can still be withdrawn.
+        prod_by_id = {p.get("id"): p for p in deposit_products}
+        for d in dep_data.get("items", []):
+            pid = d.get("product")
+            prod = prod_by_id.get(pid, {})
+            existing_deposits.append({
+                **d,
+                "product_id": pid,
+                "product_name": prod.get("name", pid),
+                "is_open": d.get("status") in (None, "", "open", "active"),
+            })
+        total_deposited = sum(d.get("amount_rub", 0) for d in existing_deposits if d["is_open"])
         total_interest = sum(d.get("interest_earned_rub", 0) for d in existing_deposits)
         deposits_source = "backend"
 
@@ -102,3 +114,29 @@ async def deposit_open(payload: dict) -> dict:
         "message": "Deposit opened successfully",
         "source": "retail-simulated",
     }
+
+
+@router.post("/api/deposit-withdraw")
+async def deposit_withdraw(payload: dict) -> dict:
+    """Close a deposit and return funds + interest to the customer.
+
+    Routes through CIB POST /deposit/withdraw (which proxies to backend so the
+    money actually moves). Falls back to backend POST /api/deposits/{id}/withdraw
+    if CIB is unreachable.
+    """
+    deposit_id = payload.get("deposit_id")
+    early = bool(payload.get("early", False))
+    if not deposit_id:
+        raise HTTPException(status_code=400, detail="deposit_id required")
+
+    cib = await try_post(CIB_URL, "/deposit/withdraw",
+                         {"deposit_id": deposit_id, "early": early})
+    if cib:
+        return {**cib, "source": cib.get("source", "cib")}
+
+    backend = await try_post(BACKEND_URL, f"/api/deposits/{deposit_id}/withdraw",
+                             {"early": early})
+    if backend:
+        return {**backend, "source": "backend"}
+
+    raise HTTPException(status_code=502, detail="Could not close deposit")

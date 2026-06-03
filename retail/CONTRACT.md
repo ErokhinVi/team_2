@@ -102,6 +102,27 @@ POST /mortgage/apply for the decision; on approval, tries backend POST
 term_years, monthly_payment_rub, ltv_pct, dti_pct, total_to_pay_rub?, reasons?,
 source}`.
 
+### GET /api/offers/{client_id}
+Personalised next-best-offers for the home screen. Proxies CIB
+`GET /clients/{id}/next-best-offers`; falls back to backend
+`GET /clients/{id}/recommendations` if CIB is unreachable. Returns
+`{client_id, name, segment, total, offers: [...], source}`. Each offer
+carries CIB's packaging (`cib.kind`, `cib.product_id`, `cib.terms`,
+`cib.action`) plus backend's `product, title, reason, score`.
+
+### POST /api/deposit-withdraw
+Close a deposit and return funds + interest. Accepts `{deposit_id, early?}`.
+Routes via CIB `POST /deposit/withdraw` (which proxies to backend so the money
+actually moves); falls back to backend `POST /api/deposits/{id}/withdraw`.
+Returns `{status, client_id, deposit_id, kind (matured|flex|early),
+principal_rub, interest_rub, returned_rub, new_balance_rub, ts, source}`.
+
+### POST /api/cashback-redeem
+Move accumulated cashback to the customer's main balance. Accepts
+`{client_id, amount_rub}`. Proxies backend `POST /api/cashback/redeem`.
+Returns `{status, client_id, redeemed_rub, new_balance_rub,
+cashback_balance_rub, tx_id, ts, source}`.
+
 ### POST /api/credit-apply
 Заявка на кредит. Принимает JSON `{client_id, product_id, amount_rub}`.
 Orchestration: fetches customer profile from backend, then asks cib
@@ -112,8 +133,8 @@ amount_rub, max_amount_rub, reason, source}`.
 
 ## Кого я зову у соседей
 
-- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/mortgages` (when shipped), `POST /clients/{id}/mortgages` (when shipped — debits down payment, stores account)
-- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide` (payload `{client_id, property_price_rub, down_payment_rub, term_years}`, returns approve/decline + loan amount + rate + monthly payment + LTV + explanation; CIB writes the mortgage to the customer profile on approval)
+- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /clients/{id}/deposits`, `POST /deposits` (fallback), `GET /cashback/{client_id}`, `POST /api/cashback/redeem`, `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/recommendations` (fallback for offers)
+- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /deposit/withdraw`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide`, `GET /clients/{id}/next-best-offers` (packaged offers for the home screen)
 
 ## Где работает блок локально
 

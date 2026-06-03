@@ -168,6 +168,20 @@
         tap_to_trade:     "Нажмите для сделки",
         order_rejected:   "Заявка отклонена",
         invested:         "Вложено",
+        for_you:          "Для вас",
+        offer_cta:        "Подробнее",
+        withdraw:         "Снять",
+        withdrawn:        "Снято",
+        principal:        "Основной долг",
+        interest:         "Проценты",
+        closed:           "Закрыт",
+        withdraw_confirm: "Закрыть вклад и вернуть средства на счёт?",
+        withdraw_confirm_early: "Это срочный вклад. При досрочном снятии проценты будут уменьшены. Продолжить?",
+        cashback_balance: "Доступный кешбэк",
+        redeem_cashback:  "Перевести кешбэк на счёт",
+        redeem_prompt:    "Сколько кешбэка перевести?",
+        redeem_invalid:   "Неверная сумма",
+        redeem_ok:        "Кешбэк зачислен на счёт",
         investor_profile_label: "Инвестиционный профиль",
         not_suitable:     "Не подходит вашему профилю",
         min_investment:   "Минимум",
@@ -333,6 +347,20 @@
         tap_to_trade:     "Tap to trade",
         order_rejected:   "Order rejected",
         invested:         "Invested",
+        for_you:          "For you",
+        offer_cta:        "Details",
+        withdraw:         "Withdraw",
+        withdrawn:        "Withdrew",
+        principal:        "Principal",
+        interest:         "Interest",
+        closed:           "Closed",
+        withdraw_confirm: "Close this deposit and return the funds to your account?",
+        withdraw_confirm_early: "This is a fixed-term deposit. Early withdrawal will reduce the interest. Continue?",
+        cashback_balance: "Cashback balance",
+        redeem_cashback:  "Redeem cashback to balance",
+        redeem_prompt:    "How much cashback to redeem?",
+        redeem_invalid:   "Invalid amount",
+        redeem_ok:        "Cashback credited to your account",
         investor_profile_label: "Investor profile",
         not_suitable:     "Not suitable for your profile",
         min_investment:   "Minimum",
@@ -382,6 +410,7 @@
         loadInvest(opt.value);
         loadBrokerage(opt.value);
         loadMortgage(opt.value);
+        loadOffers(opt.value);
       }
       if (productsData.length) renderProducts();
     }
@@ -407,6 +436,13 @@
     const investContainer = document.getElementById("invest-container");
     const brokerageContainer = document.getElementById("brokerage-container");
     const mortgageContainer = document.getElementById("mortgage-container");
+    const offersContainer = document.getElementById("offers-container");
+
+    // Helper: simulate a tap on a tab (used by offer CTAs)
+    function switchTab(key) {
+      const btn = document.querySelector(`.tab[data-tab="${key}"]`);
+      if (btn) btn.click();
+    }
 
     // ---- tabs (built from TAB_DEFS) ----
     document.querySelector(".tabs").innerHTML = TAB_DEFS.map((tdef, i) =>
@@ -458,9 +494,72 @@
       loadInvest(opt.value);
       loadBrokerage(opt.value);
       loadMortgage(opt.value);
+      loadOffers(opt.value);
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
+
+    // ---- Next-best-offers (home tab) ----
+    // Map an offer's product/kind to a destination tab. Anything that doesn't
+    // match a real tab is skipped (e.g. backend-handled premium_upgrade).
+    const OFFER_TAB = {
+      "deposit-3m": "savings", "deposit-6m": "savings",
+      "deposit-12m": "savings", "deposit-flex": "savings",
+      "deposit": "savings", "savings": "savings",
+      "credit_card": "creditcard", "card-credit": "creditcard",
+      "card-debit-cashback": "card",
+      "mortgage": "mortgage",
+      "consumer_credit": "loans", "credit-consumer": "loans", "loan": "loans",
+      "investments": "invest", "investment": "invest",
+      "cashback_redeem": "card",
+    };
+
+    function offerCtaTab(offer) {
+      const cibKind = offer.cib && offer.cib.kind;
+      const productId = (offer.cib && offer.cib.product_id) || offer.product;
+      return OFFER_TAB[productId] || OFFER_TAB[cibKind] || null;
+    }
+
+    async function loadOffers(clientId) {
+      try {
+        const r = await fetch(`/api/offers/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        const data = await r.json();
+        renderOffers(data);
+      } catch (e) {
+        offersContainer.innerHTML = "";
+      }
+    }
+
+    function renderOffers(data) {
+      const all = (data.offers || []).filter(o => offerCtaTab(o));
+      const top = all.slice(0, 3);
+      if (!top.length) { offersContainer.innerHTML = ""; return; }
+      offersContainer.innerHTML = `
+        <div class="section-title">${t("for_you")}</div>
+        <div class="offers-strip">
+          ${top.map((o, i) => {
+            const cibName = (o.cib && o.cib.name) || "";
+            const title = o.title || cibName || o.product;
+            const reason = o.reason || "";
+            const terms = o.cib && o.cib.terms;
+            let badge = "";
+            if (terms && terms.rate_pct) badge = `${terms.rate_pct}%`;
+            return `<button class="offer-card" data-offer-idx="${i}">
+              <div class="of-title">${title}</div>
+              <div class="of-reason">${reason}</div>
+              ${badge ? `<div class="of-badge">${badge}</div>` : ""}
+              <div class="of-cta">${t("offer_cta")} →</div>
+            </button>`;
+          }).join("")}
+        </div>`;
+      offersContainer.querySelectorAll(".offer-card").forEach((el, i) => {
+        el.addEventListener("click", () => {
+          const tab = offerCtaTab(top[i]);
+          if (tab) switchTab(tab);
+        });
+      });
+    }
 
     // ---- transactions ----
     async function loadTx(clientId) {
@@ -609,6 +708,11 @@
         ? `<div style="font-size:12px;color:var(--muted);margin-bottom:12px">${t("your_segment")}: ${data.segment}</div>`
         : "";
 
+      const cbBalance = data.cashback_balance_rub || 0;
+      const redeemBtn = cbBalance > 0
+        ? `<button class="btn primary" id="cashback-redeem-btn" style="margin-top:14px">${t("redeem_cashback")}</button>`
+        : "";
+
       cardContainer.innerHTML = `
         <div class="debit-card">
           <div class="card-bank">Raiffeisen</div>
@@ -621,13 +725,56 @@
         ${segmentLabel}
         <div class="cashback-summary">
           <div class="cashback-box">
-            <div class="cb-value">${fmt.format(data.total_cashback_rub)} ₽</div>
+            <div class="cb-value">${fmt.format(cbBalance)} ₽</div>
+            <div class="cb-label">${t("cashback_balance")}</div>
+          </div>
+          <div class="cashback-box">
+            <div class="cb-value" style="color:var(--text-2);font-size:18px">${fmt.format(data.total_cashback_rub)} ₽</div>
             <div class="cb-label">${t("cashback_earned")}</div>
           </div>
         </div>
+        ${redeemBtn}
+        <div id="cashback-redeem-result"></div>
         ${ratesHtml}
         <div class="section-title">${t("cashback_history")}</div>
         <div class="tx-list">${cbTxsHtml}</div>`;
+
+      const redeem = document.getElementById("cashback-redeem-btn");
+      if (redeem) {
+        redeem.addEventListener("click", async () => {
+          const out = document.getElementById("cashback-redeem-result");
+          out.innerHTML = "";
+          const max = cbBalance;
+          const ans = prompt(`${t("redeem_prompt")} (max ${fmt.format(max)} ₽)`, String(max));
+          if (!ans) return;
+          const amount = +ans;
+          if (!amount || amount <= 0 || amount > max) {
+            out.innerHTML = `<div class="alert error">${t("redeem_invalid")}</div>`;
+            return;
+          }
+          redeem.disabled = true;
+          try {
+            const r = await fetch("/api/cashback-redeem", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ client_id: data.client_id, amount_rub: amount }),
+            });
+            const res = await r.json();
+            if (r.ok) {
+              out.innerHTML = `<div class="alert ok">
+                ${t("redeem_ok")}: ${fmt.format(res.redeemed_rub || amount)} ₽
+              </div>`;
+              if (res.new_balance_rub != null) setBalance(res.new_balance_rub);
+              setTimeout(() => loadCardInfo(data.client_id), 500);
+            } else {
+              out.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+            }
+          } catch (e) {
+            out.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+          } finally {
+            redeem.disabled = false;
+          }
+        });
+      }
     }
 
     // ---- Credit card ----
@@ -799,22 +946,28 @@
             : ""}
         </div>`;
 
-      // Existing deposits
+      // Existing deposits — each row has a Withdraw button when still open
       let existingHtml = "";
       if (existing.length) {
         existingHtml = `<div class="section-title">${t("your_deposits")}</div>` +
-          existing.map(dep => `
-            <div class="existing-deposit">
+          existing.map(dep => {
+            const open = dep.is_open !== false;
+            const isFlex = (dep.product_id || dep.product || "").indexOf("flex") >= 0;
+            const withdraw = open
+              ? `<button class="link-btn withdraw-btn" data-deposit-id="${dep.deposit_id || dep.id}" data-flex="${isFlex ? 1 : 0}">${t("withdraw")}</button>`
+              : `<span class="ed-closed">${t("closed")}</span>`;
+            return `<div class="existing-deposit">
               <div class="ed-top">
-                <span class="ed-name">${dep.product_name || dep.product_id}</span>
+                <span class="ed-name">${dep.product_name || dep.product_id || dep.product}</span>
                 <span class="ed-amount">${fmt.format(dep.amount_rub)} ₽</span>
               </div>
               <div class="ed-detail">
                 ${dep.rate_pct || ""}% · ${dep.term_months || ""} ${t("months")}
                 ${dep.interest_earned_rub ? ` · +${fmt.format(dep.interest_earned_rub)} ₽` : ""}
               </div>
-            </div>
-          `).join("");
+              <div class="ed-actions">${withdraw}</div>
+            </div>`;
+          }).join("") + `<div id="withdraw-result"></div>`;
       }
 
       // Available deposit products
@@ -860,6 +1013,42 @@
           card.classList.add("selected");
           const section = document.getElementById("deposit-open-section");
           if (section) section.style.display = "block";
+        });
+      });
+
+      // Withdraw buttons on existing deposits
+      savingsContainer.querySelectorAll(".withdraw-btn").forEach(btn => {
+        btn.addEventListener("click", async (ev) => {
+          ev.preventDefault();
+          const wr = document.getElementById("withdraw-result");
+          wr.innerHTML = "";
+          const depositId = btn.dataset.depositId;
+          const isFlex = btn.dataset.flex === "1";
+          // For fixed-term deposits, ask the customer whether they accept early withdrawal
+          if (!isFlex && !confirm(t("withdraw_confirm_early"))) return;
+          if (isFlex && !confirm(t("withdraw_confirm"))) return;
+          btn.disabled = true;
+          try {
+            const r = await fetch("/api/deposit-withdraw", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ deposit_id: depositId, early: !isFlex }),
+            });
+            const res = await r.json();
+            if (r.ok) {
+              const kind = res.kind ? ` · ${res.kind}` : "";
+              wr.innerHTML = `<div class="alert ok">
+                ${t("withdrawn")} ${fmt.format(res.returned_rub || 0)} ₽
+                (${t("principal")}: ${fmt.format(res.principal_rub || 0)} ₽ · ${t("interest")}: ${fmt.format(res.interest_rub || 0)} ₽${kind})
+              </div>`;
+              setTimeout(() => loadSavings(d.client_id), 500);
+            } else {
+              wr.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+            }
+          } catch (e) {
+            wr.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+          } finally {
+            btn.disabled = false;
+          }
         });
       });
 
