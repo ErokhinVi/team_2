@@ -121,18 +121,25 @@ market_value_rub, cost_basis_rub, unrealized_pnl_rub}`. Позиция —
 cost_basis_rub, unrealized_pnl_rub}`. `404`, если клиента нет.
 
 ### POST /clients/{client_id}/orders  (он же POST /api/clients/{client_id}/orders)
-Заявка на покупку/продажу инструмента. Принимает JSON `{side, symbol, qty}`:
+Заявка на покупку/продажу инструмента. Принимает JSON
+`{side, symbol, qty, commission_rub?}`:
 - `side` — `buy` или `sell`;
 - `symbol` — код инструмента из каталога (`GET /instruments`);
-- `qty` — целое число бумаг, > 0.
+- `qty` — целое число бумаг, > 0;
+- `commission_rub` — комиссия банка по сделке (её считает cib, см. его
+  `GET /securities`: `commission_pct` + минимум 50 ₽). Опционально; передавай
+  уже посчитанную сумму в рублях. Если не передать — 0 (комиссия не берётся).
 
-`buy` списывает `price*qty` с обычного счёта клиента (`balance_rub`) и
-добавляет бумаги в портфель; `sell` продаёт бумаги и зачисляет деньги на счёт.
-Возвращает `{status, order, new_balance_rub, portfolio}`, где `order` —
-`{order_id, client_id, side, symbol, qty, price_rub, gross_rub, ts, tx_id}`.
-Каждая заявка создаёт транзакцию (`invest_buy` / `invest_sell`). Ошибки `400`:
-неизвестный side, неизвестный инструмент, qty ≤ 0, нехватка средств на покупку,
-нехватка бумаг на продажу. `404`, если клиента нет.
+`buy` списывает `price*qty + commission_rub` со счёта клиента (`balance_rub`) и
+добавляет бумаги в портфель; `sell` продаёт бумаги, зачисляет `price*qty` и
+удерживает `commission_rub` из выручки. Комиссия проводится как доход банка
+(см. `GET /analytics/revenue`). Возвращает
+`{status, order, commission_rub, new_balance_rub, portfolio}`, где `order` —
+`{order_id, client_id, side, symbol, qty, price_rub, gross_rub, commission_rub,
+ts, tx_id, commission_tx_id}`. Сделка создаёт транзакцию
+(`invest_buy` / `invest_sell`), а комиссия — отдельную `brokerage_fee`. Ошибки
+`400`: неизвестный side, неизвестный инструмент, qty ≤ 0, нехватка средств
+(учитывает комиссию), нехватка бумаг. `404`, если клиента нет.
 
 ### GET /clients/{client_id}/orders
 История заявок клиента, новые сверху. Параметр `limit` (по умолчанию 50).
@@ -195,6 +202,12 @@ acquisition_by_year, live_adoption: {deposits_opened, credit_cards_issued_via_ap
 investment_accounts_opened, product_openings_logged, openings_by_product}, note}`.
 `by_feature` — связь, не доказанная причина; `live_adoption` копится с момента
 запуска фич и есть настоящая атрибуция.
+
+### GET /analytics/revenue
+Доход банка по источникам (например, брокерская комиссия по сделкам). Параметр
+`limit` (по умолчанию 20). Возвращает `{total_revenue_rub, by_source:
+[{source, amount_rub}], events_total, recent_events: [{source, amount_rub,
+client_id, note, ts}]}`. Копится с момента запуска.
 
 ## Кредитные карты
 

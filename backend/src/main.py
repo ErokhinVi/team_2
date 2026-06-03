@@ -71,6 +71,10 @@ _credit_cards: list[dict[str, Any]] = []
 _cards_by_id: dict[str, dict[str, Any]] = {}
 _cards_by_client: dict[str, list[dict[str, Any]]] = {}
 
+# Доход банка: книга выручки по источникам (например, брокерская комиссия).
+_bank_revenue_by_source: dict[str, int] = {}
+_revenue_events: list[dict[str, Any]] = []
+
 # Вклады: списываем деньги с баланса клиента и держим их во вкладе, пока он
 # не закрыт. Журнал вкладов + индексы по id и по клиенту.
 _deposits: list[dict[str, Any]] = []
@@ -810,9 +814,23 @@ async def get_portfolio(client_id: str) -> dict:
     return _portfolio_view(client_id)
 
 
+def _book_revenue(source: str, amount: int, client_id: str, note: str,
+                  ts: str) -> None:
+    """Записать доход банка: увеличиваем счётчик по источнику и пишем событие."""
+    if amount <= 0:
+        return
+    _bank_revenue_by_source[source] = _bank_revenue_by_source.get(source, 0) + amount
+    _revenue_events.append({
+        "source": source, "amount_rub": amount, "client_id": client_id,
+        "note": note, "ts": ts,
+    })
+
+
 def _process_order(client_id: str, payload: dict) -> dict:
     """Обработать заявку buy/sell. buy — списывает деньги со счёта и
-    добавляет бумаги; sell — продаёт бумаги и зачисляет деньги на счёт."""
+    добавляет бумаги; sell — продаёт бумаги и зачисляет деньги на счёт.
+    Комиссию банка (`commission_rub`, считает cib) списываем сверху и
+    проводим как доход банка."""
     client = _clients_by_id.get(client_id)
     if not client:
         raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
@@ -826,6 +844,9 @@ def _process_order(client_id: str, payload: dict) -> dict:
     qty = int(payload.get("qty") or 0)
     if qty <= 0:
         raise HTTPException(status_code=400, detail="qty должен быть положительным")
+    commission = int(round(float(payload.get("commission_rub") or 0)))
+    if commission < 0:
+        commission = 0
 
     price = int(instr["price_rub"])
     gross = price * qty
@@ -833,10 +854,13 @@ def _process_order(client_id: str, payload: dict) -> dict:
     holdings = _holdings_by_client.setdefault(client_id, {})
 
     if side == "buy":
-        if gross > client["balance_rub"]:
+        need = gross + commission
+        if need > client["balance_rub"]:
             raise HTTPException(
                 status_code=400,
-                detail=f"недостаточно средств: нужно {gross} ₽, на счёте {client['balance_rub']} ₽",
+                detail=f"недостаточно средств: нужно {need} ₽ "
+                       f"(бумаги {gross} + комиссия {commission}), "
+                       f"на счёте {client['balance_rub']} ₽",
             )
         client["balance_rub"] -= gross
         pos = holdings.get(symbol)
@@ -871,10 +895,27 @@ def _process_order(client_id: str, payload: dict) -> dict:
     }
     _transactions.append(tx)
 
+    # Комиссия банка: списываем сверху (на покупке) или удерживаем из выручки
+    # (на продаже) и проводим как доход банка.
+    commission_tx_id = None
+    if commission > 0:
+        client["balance_rub"] -= commission
+        ctx = {
+            "id": f"t-{100000 + len(_transactions) + 1:08d}",
+            "client_id": client_id, "type": "brokerage_fee",
+            "amount_rub": -commission, "ts": now_iso, "counterparty": symbol,
+            "cashback_rub": 0,
+        }
+        _transactions.append(ctx)
+        commission_tx_id = ctx["id"]
+        _book_revenue("brokerage_commission", commission, client_id,
+                      f"{side} {qty} {symbol}", now_iso)
+
     order = {
         "order_id": f"ord-{len(_orders) + 1:06d}",
         "client_id": client_id, "side": side, "symbol": symbol, "qty": qty,
-        "price_rub": price, "gross_rub": gross, "ts": now_iso, "tx_id": tx["id"],
+        "price_rub": price, "gross_rub": gross, "commission_rub": commission,
+        "ts": now_iso, "tx_id": tx["id"], "commission_tx_id": commission_tx_id,
     }
     _orders.append(order)
     _orders_by_client.setdefault(client_id, []).append(order)
@@ -882,6 +923,7 @@ def _process_order(client_id: str, payload: dict) -> dict:
     return {
         "status": "ok",
         "order": order,
+        "commission_rub": commission,
         "new_balance_rub": client["balance_rub"],
         "portfolio": _portfolio_view(client_id),
     }
@@ -1194,4 +1236,25 @@ async def feature_acquisition() -> dict:
                 "(чем владеют клиенты и когда пришли); это связь, не доказанная "
                 "причина. live_adoption — настоящая атрибуция новых подключений "
                 "через новые ручки, копится с момента запуска фич.",
+    }
+
+
+@app.get("/analytics/revenue")
+async def revenue_summary(
+    limit: int = Query(default=20, ge=1, le=200),
+) -> dict:
+    """Доход банка по источникам (например, брокерская комиссия). Возвращает
+    `{total_revenue_rub, by_source: [{source, amount_rub}], events_total,
+    recent_events: [{source, amount_rub, client_id, note, ts}]}`. Копится с
+    момента запуска — комиссия по сделкам приходит вместе с заявкой от cib."""
+    by_source = [
+        {"source": k, "amount_rub": v}
+        for k, v in sorted(_bank_revenue_by_source.items(),
+                           key=lambda kv: kv[1], reverse=True)
+    ]
+    return {
+        "total_revenue_rub": sum(_bank_revenue_by_source.values()),
+        "by_source": by_source,
+        "events_total": len(_revenue_events),
+        "recent_events": list(reversed(_revenue_events))[:limit],
     }
