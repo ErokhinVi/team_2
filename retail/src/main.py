@@ -533,27 +533,54 @@ async def deposit_open(payload: dict) -> dict:
 
 # ---- Investments ----
 
-# Demo investment instruments shown until CIB lists real ones in /products.
-# Each: id, name, kind, expected annual return %, risk level.
+# Demo instruments used only if CIB lists no investment products at all.
 FALLBACK_INSTRUMENTS = [
-    {"id": "inv-etf-moex", "kind": "investment", "name": "MOEX Index ETF",
-     "description": "Broad Russian equity index fund", "expected_return_pct": 12.0, "risk": "medium"},
-    {"id": "inv-bond-ofz", "kind": "investment", "name": "Government Bonds (OFZ)",
-     "description": "Low-risk state bonds", "expected_return_pct": 9.0, "risk": "low"},
-    {"id": "inv-etf-tech", "kind": "investment", "name": "Tech Growth ETF",
-     "description": "High-growth technology basket", "expected_return_pct": 18.0, "risk": "high"},
-    {"id": "inv-gold", "kind": "investment", "name": "Gold Fund",
-     "description": "Inflation hedge, precious metals", "expected_return_pct": 7.5, "risk": "low"},
+    {"id": "inv-etf-moex", "name": "MOEX Index ETF",
+     "description": "Broad Russian equity index fund",
+     "expected_return_pct": 12.0, "risk_level": 3, "min_investment_rub": 10000},
+    {"id": "inv-bond-ofz", "name": "Government Bonds (OFZ)",
+     "description": "Low-risk state bonds",
+     "expected_return_pct": 9.0, "risk_level": 1, "min_investment_rub": 1000},
+    {"id": "inv-etf-tech", "name": "Tech Growth ETF",
+     "description": "High-growth technology basket",
+     "expected_return_pct": 18.0, "risk_level": 5, "min_investment_rub": 10000},
+    {"id": "inv-gold", "name": "Gold Fund",
+     "description": "Inflation hedge, precious metals",
+     "expected_return_pct": 7.5, "risk_level": 2, "min_investment_rub": 5000},
 ]
+
+
+def _risk_band(risk_level) -> str:
+    """Map a 1-5 risk level to a low/medium/high band for the UI badge."""
+    try:
+        lvl = int(risk_level)
+    except (TypeError, ValueError):
+        return "medium"
+    if lvl <= 2:
+        return "low"
+    if lvl == 3:
+        return "medium"
+    return "high"
+
+
+def _is_investment_product(p: dict) -> bool:
+    return (
+        p.get("risk_level") is not None
+        or p.get("expected_return_pct") is not None
+        or str(p.get("id", "")).startswith("inv-")
+        or p.get("kind") in ("investment", "stock", "etf", "fund", "bond")
+    )
 
 
 @app.get("/api/investments/{client_id}")
 async def investments_info(client_id: str) -> dict:
     """Investment portfolio overview for a customer.
 
-    1. Fetches investment products from CIB (kind=investment/stock/etf/fund/bond).
-    2. Tries backend GET /portfolio/{client_id} for real holdings.
-    3. Falls back to demo instruments so the screen is alive immediately.
+    1. Fetches investment products from CIB /products.
+    2. Asks CIB POST /investment/recommend for the customer's investor profile
+       and which products are suitable for their risk appetite.
+    3. Tries backend GET /portfolio/{client_id} for real holdings.
+    Falls back to demo instruments if CIB lists none.
     """
     customer = await _backend_get(f"/clients/{client_id}")
 
@@ -561,14 +588,44 @@ async def investments_info(client_id: str) -> dict:
     instruments = []
     try:
         products = await _cib_get("/products")
-        instruments = [
-            p for p in (products.get("items") or [])
-            if p.get("kind") in ("investment", "stock", "etf", "fund", "bond")
-        ]
+        instruments = [p for p in (products.get("items") or []) if _is_investment_product(p)]
     except Exception:
         pass
     if not instruments:
-        instruments = FALLBACK_INSTRUMENTS
+        instruments = list(FALLBACK_INSTRUMENTS)
+
+    # Ask CIB for the customer's investor profile + suitable products
+    investor_profile = ""
+    max_risk_level = None
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(
+                f"{CIB_URL}/investment/recommend",
+                json={"client_id": client_id},
+            )
+        if r.status_code == 200:
+            rec = r.json()
+            investor_profile = rec.get("investor_profile", "")
+            max_risk_level = rec.get("max_risk_level")
+    except httpx.HTTPError:
+        pass
+
+    # Normalise each instrument and tag suitability + risk band
+    norm = []
+    for p in instruments:
+        risk_level = p.get("risk_level")
+        suitable = (max_risk_level is None or risk_level is None
+                    or int(risk_level) <= int(max_risk_level))
+        norm.append({
+            "id": p.get("id"),
+            "name": p.get("name", p.get("id")),
+            "description": p.get("description") or p.get("subtype") or "",
+            "expected_return_pct": p.get("expected_return_pct", p.get("rate_pct")),
+            "risk_level": risk_level,
+            "risk": _risk_band(risk_level),
+            "min_investment_rub": p.get("min_investment_rub", 0),
+            "suitable": suitable,
+        })
 
     # Try real portfolio from backend
     holdings = []
@@ -594,7 +651,9 @@ async def investments_info(client_id: str) -> dict:
         "client_id": client_id,
         "customer_name": customer.get("name", ""),
         "balance_rub": customer.get("balance_rub", 0),
-        "instruments": instruments,
+        "investor_profile": investor_profile,
+        "max_risk_level": max_risk_level,
+        "instruments": norm,
         "holdings": holdings,
         "total_invested_rub": total_invested,
         "total_value_rub": total_value,
@@ -606,10 +665,13 @@ async def investments_info(client_id: str) -> dict:
 
 @app.post("/api/invest")
 async def invest(payload: dict) -> dict:
-    """Place an investment order.
+    """Place an investment order, gated by a regulatory suitability check.
 
-    Tries backend POST /portfolio/buy. If unavailable, returns a simulated
-    confirmation with a projected one-year value based on expected return.
+    1. Asks CIB POST /investment/suitability whether the product fits the
+       customer's risk profile (and concentration limit). If not suitable,
+       returns status "unsuitable" with reasons and suitable alternatives.
+    2. If suitable (or CIB unreachable), places the order via backend
+       POST /portfolio/buy, or returns a simulated confirmation.
     """
     client_id = payload.get("client_id")
     instrument_id = payload.get("instrument_id")
@@ -621,7 +683,33 @@ async def invest(payload: dict) -> dict:
             detail="client_id, instrument_id and positive amount_rub required",
         )
 
-    # Try backend
+    # Step 1 — suitability check via CIB
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(
+                f"{CIB_URL}/investment/suitability",
+                json={"client_id": client_id, "product_id": instrument_id, "amount_rub": amount},
+            )
+        if r.status_code == 200:
+            suit = r.json()
+            if not suit.get("suitable", True):
+                return {
+                    "status": "unsuitable",
+                    "client_id": client_id,
+                    "instrument_id": instrument_id,
+                    "instrument_name": suit.get("product_name", instrument_id),
+                    "amount_rub": amount,
+                    "reasons": suit.get("reasons", []),
+                    "investor_profile": suit.get("investor_profile", ""),
+                    "max_risk_level": suit.get("max_risk_level"),
+                    "product_risk_level": suit.get("product_risk_level"),
+                    "suitable_alternatives": suit.get("suitable_alternatives", []),
+                    "source": "cib",
+                }
+    except httpx.HTTPError:
+        pass  # CIB unreachable — proceed without the gate
+
+    # Step 2 — place the order on backend
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(f"{BACKEND_URL}/portfolio/buy", json=payload)

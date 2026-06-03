@@ -500,6 +500,13 @@
     .invest-hero .ih-gain.up   { color: #7CF2A8; }
     .invest-hero .ih-gain.down { color: #FF9B8A; }
     .invest-hero .ih-gain.flat { color: rgba(244,241,251,0.7); }
+    .invest-hero .ih-profile {
+      margin-top: 14px; font-size: 12px;
+      color: rgba(244,241,251,0.85);
+      background: rgba(255,255,255,0.1);
+      display: inline-block; padding: 5px 12px; border-radius: 20px;
+      text-transform: capitalize;
+    }
 
     .instrument {
       border: 0; border-radius: 18px;
@@ -522,6 +529,13 @@
     .instrument .in-return { font-size: 18px; font-weight: 800; color: var(--good); }
     .instrument .in-return small { font-size: 10px; font-weight: 600; color: var(--muted); }
     .instrument .in-detail { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+    .instrument .in-min { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+    .instrument .in-badges { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .instrument.unsuitable { opacity: 0.66; }
+    .unsuit-flag {
+      font-size: 10px; font-weight: 600; color: var(--muted);
+      border: 1px dashed var(--rule); padding: 3px 9px; border-radius: 20px;
+    }
     .risk-badge {
       display: inline-block; font-size: 10px; font-weight: 700;
       padding: 3px 10px; border-radius: 20px;
@@ -740,6 +754,11 @@
         invest_success:   "Заявка принята!",
         projected_1y:     "Прогноз через год",
         invested:         "Вложено",
+        investor_profile_label: "Инвестиционный профиль",
+        not_suitable:     "Не подходит вашему профилю",
+        min_investment:   "Минимум",
+        unsuitable_title: "Этот инструмент вам не подходит",
+        suitable_alts:    "Подходящие альтернативы",
         loading_cc:       "Загрузка кредитной карты...",
         cc_error:         "Не удалось загрузить данные кредитной карты",
         credit_card:      "КРЕДИТНАЯ",
@@ -854,6 +873,11 @@
         invest_success:   "Order accepted!",
         projected_1y:     "1-year projection",
         invested:         "Invested",
+        investor_profile_label: "Investor profile",
+        not_suitable:     "Not suitable for your profile",
+        min_investment:   "Minimum",
+        unsuitable_title: "This instrument is not suitable for you",
+        suitable_alts:    "Suitable alternatives",
         loading_cc:       "Loading credit card...",
         cc_error:         "Could not load credit card data",
         credit_card:      "CREDIT",
@@ -1423,6 +1447,9 @@
       const gain = d.gain_rub || 0;
       const gainDir = gain > 0 ? "up" : gain < 0 ? "down" : "flat";
       const gainSign = gain > 0 ? "+" : "";
+      const profileLine = d.investor_profile
+        ? `<div class="ih-profile">${t("investor_profile_label")}: <b>${d.investor_profile}</b>${d.max_risk_level != null ? ` (max ${d.max_risk_level}/5)` : ""}</div>`
+        : "";
       const heroHtml = `
         <div class="invest-hero">
           <div class="ih-label">${t("portfolio_value")}</div>
@@ -1430,6 +1457,7 @@
           <div class="ih-gain ${gainDir}">
             ${gainSign}${fmt.format(gain)} ₽ (${gainSign}${d.gain_pct}%)
           </div>
+          ${profileLine}
         </div>`;
 
       // Existing holdings
@@ -1461,13 +1489,23 @@
             const sel = ins.id === selectedInstrumentId ? "selected" : "";
             const risk = ins.risk || "medium";
             const ret = ins.expected_return_pct != null ? ins.expected_return_pct : (ins.rate_pct || "");
-            return `<div class="instrument ${sel}" data-instrument-id="${ins.id}">
+            const unsuit = ins.suitable === false ? " unsuitable" : "";
+            const minLine = ins.min_investment_rub
+              ? `<div class="in-min">${t("min_investment")}: ${fmt.format(ins.min_investment_rub)} ₽</div>`
+              : "";
+            const unsuitFlag = ins.suitable === false
+              ? `<span class="unsuit-flag">${t("not_suitable")}</span>` : "";
+            return `<div class="instrument${unsuit} ${sel}" data-instrument-id="${ins.id}">
               <div class="in-top">
                 <span class="in-name">${ins.name}</span>
                 <span class="in-return">${ret}% <small>${t("exp_return")}</small></span>
               </div>
               <div class="in-detail">${ins.description || ""}</div>
-              <span class="risk-badge ${risk}">${riskLabel(risk)}</span>
+              ${minLine}
+              <div class="in-badges">
+                <span class="risk-badge ${risk}">${riskLabel(risk)}</span>
+                ${unsuitFlag}
+              </div>
             </div>`;
           }).join("");
       } else {
@@ -1525,7 +1563,22 @@
               }),
             });
             const res = await r.json();
-            if (r.ok) {
+            if (r.ok && res.status === "unsuitable") {
+              // Regulatory suitability gate: show reasons + alternatives
+              const reasons = (res.reasons || []).map(x => `<li>${x}</li>`).join("");
+              let altsHtml = "";
+              if ((res.suitable_alternatives || []).length) {
+                altsHtml = `<div style="margin-top:10px;font-weight:600">${t("suitable_alts")}:</div>` +
+                  res.suitable_alternatives.map(a =>
+                    `<div style="font-size:13px;margin-top:4px">• ${a.name} — ${a.expected_return_pct}% (${t("risk_low") && a.risk_level <= 2 ? t("risk_low") : a.risk_level === 3 ? t("risk_medium") : t("risk_high")})</div>`
+                  ).join("");
+              }
+              invResult.innerHTML = `<div class="alert info">
+                <b>${t("unsuitable_title")}</b>
+                <ul style="margin:8px 0 0; padding-left:18px">${reasons}</ul>
+                ${altsHtml}
+              </div>`;
+            } else if (r.ok) {
               const proj = res.projected_value_1y_rub
                 ? `<br/>${t("projected_1y")}: ${fmt.format(res.projected_value_1y_rub)} ₽`
                 : "";
