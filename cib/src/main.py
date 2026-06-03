@@ -221,8 +221,10 @@ DEPOSIT_MIN_AMOUNTS = {
 
 def _loyalty_tier(customer: dict) -> dict:
     """Relationship tier from the number of products the customer holds, with the
-    deposit-rate and cashback perks it carries."""
-    n = len(customer.get("products", []) or [])
+    deposit-rate and cashback perks it carries. Internal markers (e.g. the
+    referral marker) don't count as products."""
+    held = [p for p in (customer.get("products") or []) if p != REFERRAL_PRODUCT_MARKER]
+    n = len(held)
     if n >= 4:
         tier, dep, cb = "platinum", 0.75, 1.0
     elif n == 3:
@@ -1402,7 +1404,7 @@ def _preapprove_consumer_loan(c: dict) -> dict | None:
     return {
         "product_id": "credit-consumer", "type": "loan", "name": prod["name"],
         "headline": f"You're pre-approved for a loan up to {amount:,} ₽".replace(",", " "),
-        "amount_rub": amount, "rate_pct": rate,
+        "amount_rub": amount, "rate_pct": rate, "term_months": LOAN_DEFAULT_TERM_MONTHS,
         "action": {"method": "POST", "path": "/credit/decide"},
     }
 
