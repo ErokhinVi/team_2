@@ -26,7 +26,7 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8003").rstrip("/")
 
 # Policy version stamped on every decision for regulatory traceability — bump
 # when underwriting rules or thresholds change.
-POLICY_VERSION = "2026-06-03.1"
+POLICY_VERSION = "2026-06-03.2"
 
 # Decision audit trail: each credit decision is recorded with its inputs and the
 # rules that fired, so any decision can be reconstructed and defended later.
@@ -306,6 +306,18 @@ def _risk_rate(base_rate: float, risk: float) -> float:
         adj = 3.0
     return round(base_rate + adj, 1)
 
+
+def _max_dsti(risk: float) -> float:
+    """Debt-burden ceiling, tiered by credit risk. The safest borrowers can
+    sustain a slightly higher burden, so they get a modestly raised cap; everyone
+    else stays at the prudent baseline. (User-approved 2026-06-03.)"""
+    if risk <= 0.20:
+        return 0.60   # safest customers
+    if risk <= 0.35:
+        return 0.55
+    return LOAN_MAX_DSTI  # 0.50 baseline
+
+
 app = FastAPI(title="cib — корпоратив и бизнес-логика", version="1.0.0")
 
 
@@ -471,9 +483,10 @@ async def credit_decide(req: DecideRequest) -> dict:
         total_service = existing + payment
         dsti = total_service / income
         residual = income - total_service
-        if dsti > LOAN_MAX_DSTI:
+        max_dsti = _max_dsti(risk)
+        if dsti > max_dsti:
             reasons.append(
-                f"debt-service-to-income too high ({dsti*100:.0f}% > {int(LOAN_MAX_DSTI*100)}%)"
+                f"debt-service-to-income too high ({dsti*100:.0f}% > {int(max_dsti*100)}%)"
             )
         if residual < LOAN_MIN_RESIDUAL_RUB:
             reasons.append(
@@ -716,10 +729,11 @@ async def car_loan_decide(req: CarLoanRequest) -> dict:
         reasons.append(f"risk score too high ({risk:.2f})")
     if income < MIN_INCOME_RUB:
         reasons.append(f"income below minimum ({income} < {MIN_INCOME_RUB})")
-    if income > 0 and total_service > income * LOAN_MAX_DSTI:
+    car_max_dsti = _max_dsti(risk)
+    if income > 0 and total_service > income * car_max_dsti:
         reasons.append(
             f"total debt payments {round(total_service)} exceed "
-            f"{int(LOAN_MAX_DSTI*100)}% of income ({income})"
+            f"{int(car_max_dsti*100)}% of income ({income})"
         )
 
     approved = not reasons
@@ -1666,7 +1680,7 @@ def _preapprove_consumer_loan(c: dict) -> dict | None:
     rate = _risk_rate(prod["rate_pct"], risk)
     # Affordability cap: largest loan whose payment stays within DSTI and residual.
     existing = c.get("existing_monthly_debt_rub", 0.0)
-    max_payment = min(income * LOAN_MAX_DSTI, income - LOAN_MIN_RESIDUAL_RUB) - existing
+    max_payment = min(income * _max_dsti(risk), income - LOAN_MIN_RESIDUAL_RUB) - existing
     if max_payment <= 0:
         return None
     mr = rate / 100 / 12

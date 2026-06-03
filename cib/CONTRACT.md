@@ -60,7 +60,7 @@ Returns:
 
 Optional request fields: `term_months` (default 36) and `existing_monthly_debt_rub` (existing monthly debt service, if known — lets cib compute true aggregate debt burden; defaults to single-loan view).
 
-When `amount_rub` is supplied for a term loan, cib runs an **affordability / responsible-lending gate**: declines if debt-service-to-income exceeds 50% (including any existing debt) or too little residual income remains. The response then also carries cost-of-credit disclosure: `monthly_payment_rub`, `total_repayment_rub`, `total_cost_of_credit_rub`, `effective_apr_pct`, `dsti_pct`, `existing_debt_included`.
+When `amount_rub` is supplied for a term loan, cib runs an **affordability / responsible-lending gate**: declines if debt-service-to-income exceeds the risk-tiered ceiling (50% baseline; 55% for risk ≤ 0.35; 60% for the safest, risk ≤ 0.20) including any existing debt, or too little residual income remains. The response then also carries cost-of-credit disclosure: `monthly_payment_rub`, `total_repayment_rub`, `total_cost_of_credit_rub`, `effective_apr_pct`, `dsti_pct`, `existing_debt_included`.
 
 The binding decision basis is always the deterministic `reasons` list (`binding_decision_basis: "reasons"`). The `explanation` text is AI-generated for friendliness only (`explanation_is_advisory: true`) and must never be the official reason for a decision.
 

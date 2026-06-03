@@ -3,7 +3,7 @@
 > Plain-English summary of the lending, credit-card, investment and disclosure
 > rules enforced by the CIB decision engine. Intended for a compliance officer.
 > The authoritative implementation is `cib/src/main.py`; this document mirrors it.
-> Policy version: **2026-06-03.1** (stamped on every decision record).
+> Policy version: **2026-06-03.2** (stamped on every decision record).
 
 ## 1. Principles
 
@@ -24,8 +24,10 @@ A loan is **declined** if any of the following is true:
    loans (≤ 6× monthly income).
 3. Monthly income below 30,000 ₽.
 4. **Affordability (when an amount is supplied):** total debt-service-to-income
-   (DSTI) — existing monthly debt **plus** the new loan payment — exceeds **50%**
-   of income.
+   (DSTI) — existing monthly debt **plus** the new loan payment — exceeds the
+   risk-tiered ceiling. Baseline **50%**, raised for the safest borrowers
+   (risk ≤ 0.35 → 55%, risk ≤ 0.20 → 60%), since lower default risk can sustain
+   slightly more leverage. User-approved tiering, 2026-06-03.
 5. **Residual income:** less than 20,000 ₽ would remain after all debt payments.
 
 Existing debt is read automatically from the customer record
