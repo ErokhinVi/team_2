@@ -9,8 +9,12 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI
+import httpx
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
+from pydantic import BaseModel
+
+from src.llm import LLMError, ask_llm
 
 TEAM_NAME = os.environ.get("TEAM_NAME", "team")
 COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local")
@@ -20,9 +24,19 @@ BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8003").rstrip("/")
 PRODUCTS = [
     {"id": "card-debit", "kind": "card", "name": "Дебетовая карта", "segment": "mass"},
     {"id": "deposit-base", "kind": "deposit", "name": "Срочный депозит", "rate_pct": 14.0},
+    {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
 ]
 
+# Decision thresholds
+MAX_RISK_SCORE = 0.55
+MIN_INCOME_RUB = 30_000
+
 app = FastAPI(title="cib — корпоратив и бизнес-логика", version="1.0.0")
+
+
+class DecideRequest(BaseModel):
+    client_id: str
+    product_id: str
 
 
 @app.get("/health")
@@ -34,6 +48,67 @@ async def health() -> dict:
 @app.get("/products")
 async def products() -> dict:
     return {"total": len(PRODUCTS), "items": PRODUCTS}
+
+
+@app.post("/credit/decide")
+async def credit_decide(req: DecideRequest) -> dict:
+    # Fetch customer profile from backend
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(f"{BACKEND_URL}/clients/{req.client_id}")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Backend unavailable")
+    customer = resp.json()
+
+    # Find the requested product
+    product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    # Credit products only
+    if product["kind"] != "credit":
+        raise HTTPException(status_code=400, detail="Product is not a credit product")
+
+    # Decision rules
+    reasons: list[str] = []
+    approved = True
+
+    if customer.get("has_overdue_history"):
+        approved = False
+        reasons.append("overdue payment history")
+
+    if customer.get("risk_score", 1.0) > MAX_RISK_SCORE:
+        approved = False
+        reasons.append(f"risk score too high ({customer['risk_score']:.2f})")
+
+    if customer.get("income_rub", 0) < MIN_INCOME_RUB:
+        approved = False
+        reasons.append(f"income below minimum ({customer['income_rub']} < {MIN_INCOME_RUB})")
+
+    # Human-readable explanation via LLM (best-effort)
+    explanation = ""
+    try:
+        verdict = "approved" if approved else "declined"
+        prompt = (
+            f"A bank customer (age {customer.get('age')}, segment {customer.get('segment')}) "
+            f"applied for '{product['name']}'. Decision: {verdict}. "
+            f"Reasons: {', '.join(reasons) if reasons else 'all checks passed'}. "
+            "Write a short, polite one-sentence explanation for the customer in English."
+        )
+        explanation = await ask_llm(prompt)
+    except LLMError:
+        explanation = "Decision made based on your financial profile." if approved else \
+            "We are unable to approve this application at this time."
+
+    return {
+        "client_id": req.client_id,
+        "product_id": req.product_id,
+        "approved": approved,
+        "reasons": reasons,
+        "explanation": explanation,
+        "customer_name": customer.get("name"),
+    }
 
 
 @app.get("/", response_class=HTMLResponse)

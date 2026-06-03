@@ -17,9 +17,30 @@
 ### GET /
 HTML с каталогом продуктов. Для человека, не для других блоков.
 
+### POST /credit/decide
+
+Credit decision for a customer applying for a product. Request body (JSON):
+`{ "client_id": "<string>", "product_id": "<string>" }`
+
+`product_id` must be a credit product — currently only `"credit-consumer"` (consumer loan, 18.9 %).
+
+Returns:
+```json
+{
+  "client_id": "c-01000",
+  "product_id": "credit-consumer",
+  "approved": true,
+  "reasons": [],
+  "explanation": "Congratulations, your application has been approved.",
+  "customer_name": "Анна Козлова"
+}
+```
+`approved` is `true` or `false`. `reasons` lists why a decision was declined (empty on approval).
+HTTP 404 if client or product is not found. HTTP 400 if product is not a credit product.
+
 ## Кого я зову у соседей
 
-- backend: пока никого; появится, когда логика решения попросит данные клиента
+- backend: `GET /clients/{client_id}` — full customer card (income, risk score, overdue history)
 - retail: я никого не зову у retail — это retail зовёт меня
 
 ## Где работает блок локально
