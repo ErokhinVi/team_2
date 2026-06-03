@@ -71,6 +71,8 @@ PRODUCTS = [
     {"id": "deposit-12m", "kind": "deposit", "name": "Депозит 12 месяцев","rate_pct": 17.0, "term_months": 12, "early_withdrawal": False},
     {"id": "deposit-flex","kind": "deposit", "name": "Накопительный счёт","rate_pct": 9.5,  "term_months": None,"early_withdrawal": True},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
+    {"id": "mortgage", "kind": "mortgage", "name": "Ипотека", "rate_pct": 16.0,
+     "term_years_max": 30, "min_down_payment_pct": 20, "max_ltv_pct": 80},
     # Investment / tradable securities. risk_level 1 (lowest) .. 5 (highest).
     # cib owns the trading TERMS (lot_size, commission_pct, min_order_rub,
     # suitability); `ticker` matches backend's live catalogue (GET /instruments),
@@ -106,7 +108,7 @@ OFFER_ROUTING: dict[str, dict] = {
     "credit_card":     {"cib_product": "card-credit",     "action": ("POST", "/card/credit-limit")},
     "consumer_credit": {"cib_product": "credit-consumer", "action": ("POST", "/credit/decide")},
     "investments":     {"cib_product": None,              "action": ("POST", "/investment/recommend")},
-    "mortgage":        {"cib_product": None, "action": None, "note": "no mortgage product in cib catalogue yet"},
+    "mortgage":        {"cib_product": "mortgage",        "action": ("POST", "/mortgage/decide")},
     "premium_upgrade": {"cib_product": None, "action": None, "handled_by": "backend",
                         "note": "segment upgrade — handled by backend/retail"},
     "cashback_redeem": {"cib_product": None, "action": ("POST", "/api/cashback/redeem"),
@@ -159,6 +161,11 @@ MAX_RISK_SCORE_STANDARD = 0.55   # for larger amounts (> 6x monthly income)
 MAX_RISK_SCORE_SMALL = 0.65      # for smaller amounts (<= 6x monthly income)
 MIN_INCOME_RUB = 30_000
 
+# Mortgage thresholds
+MORTGAGE_MAX_RISK = 0.55
+MORTGAGE_MIN_INCOME = 40_000     # mortgages need a stronger income
+MORTGAGE_MAX_DTI = 0.50          # monthly payment <= 50% of monthly income
+
 app = FastAPI(title="cib — корпоратив и бизнес-логика", version="1.0.0")
 
 
@@ -192,6 +199,13 @@ class SuitabilityRequest(BaseModel):
 
 class RecommendRequest(BaseModel):
     client_id: str
+
+
+class MortgageRequest(BaseModel):
+    client_id: str
+    property_price_rub: float
+    down_payment_rub: float
+    term_years: int = 20
 
 
 class OrderCheckRequest(BaseModel):
@@ -278,6 +292,80 @@ async def credit_decide(req: DecideRequest) -> dict:
         "client_id": req.client_id,
         "product_id": req.product_id,
         "approved": approved,
+        "reasons": reasons,
+        "explanation": explanation,
+        "customer_name": customer.get("name"),
+    }
+
+
+@app.post("/mortgage/decide")
+async def mortgage_decide(req: MortgageRequest) -> dict:
+    product = next((p for p in PRODUCTS if p["id"] == "mortgage"), None)
+    if product is None:
+        raise HTTPException(status_code=500, detail="Mortgage product missing")
+
+    if req.property_price_rub <= 0 or req.down_payment_rub < 0:
+        raise HTTPException(status_code=400, detail="Invalid property price or down payment")
+    if req.down_payment_rub >= req.property_price_rub:
+        raise HTTPException(status_code=400, detail="Down payment cannot cover the whole property")
+
+    customer = await _fetch_customer(req.client_id)
+    income = customer.get("income_rub", 0)
+    risk = customer.get("risk_score", 1.0)
+
+    loan_rub = req.property_price_rub - req.down_payment_rub
+    down_pct = req.down_payment_rub / req.property_price_rub * 100
+    ltv_pct = loan_rub / req.property_price_rub * 100
+
+    # Monthly annuity payment
+    term_years = max(1, min(req.term_years, product["term_years_max"]))
+    n = term_years * 12
+    r = product["rate_pct"] / 100 / 12
+    monthly_payment = round(loan_rub * r / (1 - (1 + r) ** -n)) if r > 0 else round(loan_rub / n)
+
+    reasons: list[str] = []
+    if down_pct < product["min_down_payment_pct"]:
+        reasons.append(
+            f"down payment below minimum ({down_pct:.0f}% < {product['min_down_payment_pct']}%)"
+        )
+    if customer.get("has_overdue_history"):
+        reasons.append("overdue payment history")
+    if risk > MORTGAGE_MAX_RISK:
+        reasons.append(f"risk score too high ({risk:.2f})")
+    if income < MORTGAGE_MIN_INCOME:
+        reasons.append(f"income below minimum ({income} < {MORTGAGE_MIN_INCOME})")
+    if income > 0 and monthly_payment > income * MORTGAGE_MAX_DTI:
+        reasons.append(
+            f"monthly payment {monthly_payment} exceeds {int(MORTGAGE_MAX_DTI*100)}% of income ({income})"
+        )
+
+    approved = not reasons
+
+    explanation = ""
+    try:
+        verdict = "approved" if approved else "declined"
+        prompt = (
+            f"A customer applied for a mortgage of {loan_rub:.0f} rubles over {term_years} years. "
+            f"Decision: {verdict}. Reasons: {', '.join(reasons) if reasons else 'all checks passed'}. "
+            "Write a short, polite one-sentence explanation for the customer in English."
+        )
+        explanation = await ask_llm(prompt)
+    except LLMError:
+        explanation = ("Your mortgage application has been approved." if approved
+                       else "We are unable to approve this mortgage at this time.")
+
+    return {
+        "client_id": req.client_id,
+        "product_id": "mortgage",
+        "approved": approved,
+        "property_price_rub": req.property_price_rub,
+        "down_payment_rub": req.down_payment_rub,
+        "loan_amount_rub": round(loan_rub, 2),
+        "down_payment_pct": round(down_pct, 1),
+        "ltv_pct": round(ltv_pct, 1),
+        "rate_pct": product["rate_pct"],
+        "term_years": term_years,
+        "monthly_payment_rub": monthly_payment,
         "reasons": reasons,
         "explanation": explanation,
         "customer_name": customer.get("name"),
@@ -912,6 +1000,7 @@ PRODUCT_COPY = {
     "deposit-12m":         ("12-month deposit", "Our best savings rate"),
     "deposit-flex":        ("Flexible savings", "Withdraw anytime, earn daily"),
     "credit-consumer":     ("Consumer loan", "Instant decision, fair rate"),
+    "mortgage":            ("Mortgage", "Your own home, from 16%"),
     "inv-ofz":             ("Government bonds", "Lowest risk, steady income"),
     "inv-corp-bond":       ("Corporate bond fund", "Higher yield, low risk"),
     "inv-etf-index":       ("Index ETF", "The whole market in one buy"),
@@ -924,7 +1013,7 @@ PRODUCT_COPY = {
 CATEGORIES = [
     ("Cards", "💳", ("card", "credit_card")),
     ("Savings & Deposits", "🏦", ("deposit",)),
-    ("Lending", "💰", ("credit",)),
+    ("Lending", "💰", ("credit", "mortgage")),
     ("Investments", "📈", ("investment",)),
 ]
 
@@ -941,6 +1030,8 @@ def _product_highlight(p: dict) -> str:
         return f"{p['rate_pct']}% p.a. · {term}"
     if kind == "credit":
         return f"from {p['rate_pct']}%"
+    if kind == "mortgage":
+        return f"from {p['rate_pct']}% · up to {p['term_years_max']} yrs"
     if kind == "investment":
         return f"~{p['expected_return_pct']}% · risk {p['risk_level']}/5"
     return ""

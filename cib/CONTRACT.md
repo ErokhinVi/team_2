@@ -21,6 +21,7 @@ Current products:
 - `deposit-12m` — 12-month term deposit, 17%, min 30,000 rubles
 - `deposit-flex` — Flexible savings account, 9.5%, withdraw anytime, min 1,000 rubles
 - `credit-consumer` — Consumer loan, 18.9%
+- `mortgage` — Mortgage, from 16%, up to 30 years, min 20% down payment
 - Investments (each has `subtype`, `risk_level` 1–5, `expected_return_pct`, `min_investment_rub`):
   - `inv-ofz` — Government bonds (OFZ), risk 1, ~13%
   - `inv-corp-bond` — Corporate bond fund, risk 2, ~16%
@@ -70,7 +71,25 @@ Returns `{client_id, name, segment, total, offers: [...]}`. Each offer is backen
 }
 ```
 
-`cib.available` is false for codes cib can't fulfil yet (`mortgage`) or that belong to backend (`premium_upgrade`, `cashback_redeem` → `handled_by: "backend"`), with a `note` explaining. The app shows the offer and routes the customer to `cib.action`.
+`cib.available` is false only for codes that belong to backend (`premium_upgrade`, `cashback_redeem` → `handled_by: "backend"`), with a `note` explaining. The app shows the offer and routes the customer to `cib.action`.
+
+### POST /mortgage/decide
+
+Mortgage decision for a customer. Request body: `{ "client_id": "<string>", "property_price_rub": <number>, "down_payment_rub": <number>, "term_years": <int, default 20> }`.
+
+Checks the down payment (min 20%), no overdue history, risk score ≤ 0.55, income ≥ 40,000, and that the monthly annuity payment is ≤ 50% of monthly income. Returns:
+
+```json
+{
+  "client_id": "c-01004", "product_id": "mortgage", "approved": true,
+  "property_price_rub": 8000000, "down_payment_rub": 2000000,
+  "loan_amount_rub": 6000000, "down_payment_pct": 25.0, "ltv_pct": 75.0,
+  "rate_pct": 16.0, "term_years": 20, "monthly_payment_rub": 83451,
+  "reasons": [], "explanation": "...", "customer_name": "Олег Кузнецов"
+}
+```
+
+`approved: false` with `reasons` if any rule fails. HTTP 400 on invalid price/down payment.
 
 ### POST /investment/suitability
 
