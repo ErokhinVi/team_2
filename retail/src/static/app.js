@@ -135,55 +135,30 @@
     const ICON = (paths) =>
       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" ` +
       `stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
-    // Bottom nav shows 5 groups. A sub-tab strip appears above the content
-    // only for groups with more than one pane.
-    const TAB_GROUPS = [
-      { key: "home",    i18n: "home_tab",
-        icon: ICON('<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.7V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.7"/>'),
-        panes: ["transfers"] },
-      { key: "cards",   i18n: "cards_tab",
-        icon: ICON('<rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.5h19"/><path d="M6.5 14.5h4"/>'),
-        panes: ["card", "creditcard"] },
-      { key: "wealth",  i18n: "wealth_tab",
-        icon: ICON('<path d="M3 18 8 12.5l4 4L21 7"/><path d="M21 12V7h-5"/>'),
-        panes: ["savings", "invest", "brokerage"] },
-      { key: "borrow",  i18n: "borrow_tab",
-        icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>'),
-        panes: ["loans", "carloan", "mortgage", "refinance"] },
-      { key: "friends", i18n: "friends_tab",
-        icon: ICON('<circle cx="8.5" cy="9" r="3"/><path d="M3 19.5c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/><circle cx="17" cy="8" r="2.2"/><path d="M14.6 13.6c.7-.4 1.5-.6 2.4-.6 1.9 0 3.3 1 4 3"/>'),
-        panes: ["invite"] },
+    const TAB_DEFS = [
+      { key: "transfers",  i18n: "transfers_tab",
+        icon: ICON('<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.7V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.7"/>') },
+      { key: "card",       i18n: "card_tab",
+        icon: ICON('<rect x="2.5" y="5" width="19" height="14" rx="3"/><path d="M2.5 9.5h19"/>') },
+      { key: "creditcard", i18n: "cc_tab",
+        icon: ICON('<path d="M12 3 21 9l-9 12L3 9z"/><path d="M3 9h18"/>') },
+      { key: "savings",    i18n: "savings_tab",
+        icon: ICON('<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="12" cy="12" r="3.3"/><path d="M12 8.7V6.5M12 17.5v-2.2"/>') },
+      { key: "invest",     i18n: "invest_tab",
+        icon: ICON('<path d="M3 17l6-6 4 4 7-7"/><path d="M17 8h4v4"/>') },
+      { key: "brokerage",  i18n: "brokerage_tab",
+        icon: ICON('<path d="M4 20V11M9 20V5M14 20V14M19 20V8"/>') },
+      { key: "loans",      i18n: "loans_tab",
+        icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>') },
+      { key: "carloan",    i18n: "carloan_tab",
+        icon: ICON('<path d="M5 13l1.6-4.5C6.8 8 7.3 7.5 8 7.5h8c.7 0 1.2.5 1.4 1L19 13"/><path d="M3.8 13h16.4v4.5H3.8z"/><circle cx="7.5" cy="17.5" r="1.6"/><circle cx="16.5" cy="17.5" r="1.6"/>') },
+      { key: "mortgage",   i18n: "mortgage_tab",
+        icon: ICON('<path d="M3 11 12 4l9 7"/><path d="M5 10.5V20h5v-5h4v5h5v-9.5"/><circle cx="14.5" cy="13" r="1"/>') },
+      { key: "refinance",  i18n: "refinance_tab",
+        icon: ICON('<path d="M4 12a8 8 0 0 1 14.3-4.8"/><path d="M20 12a8 8 0 0 1-14.3 4.8"/><path d="M18.3 7.2 14.5 7.2 18.3 3.5z"/><path d="M5.7 16.8 9.5 16.8 5.7 20.5z"/>') },
+      { key: "invite",     i18n: "invite_tab",
+        icon: ICON('<circle cx="8.5" cy="9" r="3"/><path d="M3 19.5c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/><circle cx="17" cy="8" r="2.2"/><path d="M14.6 13.6c.7-.4 1.5-.6 2.4-.6 1.9 0 3.3 1 4 3"/>') },
     ];
-
-    // Pane → short i18n label shown inside the sub-tab strip.
-    const PANE_LABEL_I18N = {
-      transfers: "transfers_tab",
-      card: "debit_short", creditcard: "credit_short",
-      savings: "savings_tab", invest: "invest_tab", brokerage: "brokerage_tab",
-      loans: "loans_tab", carloan: "carloan_tab",
-      mortgage: "mortgage_tab", refinance: "refinance_tab",
-      invite: "invite_tab",
-    };
-
-    // Pane → fresh-data loader, fired every time the pane is shown.
-    const PANE_LOADERS = {
-      card:       (cid) => loadCardInfo(cid),
-      creditcard: (cid) => loadCreditCard(cid),
-      savings:    (cid) => loadSavings(cid),
-      invest:     (cid) => loadInvest(cid),
-      brokerage:  (cid) => loadBrokerage(cid),
-      mortgage:   (cid) => loadMortgage(cid),
-      carloan:    (cid) => loadCarLoan(cid),
-      refinance:  (cid) => loadRefinance(cid),
-      invite:     (cid) => loadInvite(cid),
-    };
-
-    // Reverse index: pane → owning group object.
-    const GROUP_OF_PANE = {};
-    TAB_GROUPS.forEach(g => g.panes.forEach(p => GROUP_OF_PANE[p] = g));
-
-    // Last visited pane within each group, so flicking back feels natural.
-    const lastPaneOf = {};
 
     // ---- i18n ----
     const i18n = {
@@ -721,93 +696,38 @@
     const offersContainer = document.getElementById("offers-container");
     const inviteContainer = document.getElementById("invite-container");
 
-    // Pure function: compute what should be on screen for a given (group, pane override).
-    // Tested separately in test/nav.test.js — keep this side-effect-free.
-    function computeNavState(groupKey, paneOverride) {
-      const group = TAB_GROUPS.find(g => g.key === groupKey);
-      if (!group) return null;
-      const pane = paneOverride && group.panes.indexOf(paneOverride) >= 0
-        ? paneOverride
-        : (lastPaneOf[groupKey] || group.panes[0]);
-      return {
-        groupKey,
-        activePane: pane,
-        showStrip: group.panes.length > 1,
-        stripPanes: group.panes,
-      };
+    // Helper: simulate a tap on a tab (used by offer CTAs and other deep links)
+    function switchTab(key) {
+      const btn = document.querySelector(`.tab[data-tab="${key}"]`);
+      if (btn) btn.click();
     }
 
-    // Apply a NavState to the DOM. Each step is independent and idempotent.
-    function applyNavState(state) {
-      lastPaneOf[state.groupKey] = state.activePane;
+    // ---- Tabs (built from TAB_DEFS) ----
+    document.querySelector(".tabs").innerHTML = TAB_DEFS.map((tdef, i) =>
+      `<button class="tab${i === 0 ? " active" : ""}" data-tab="${tdef.key}">
+         <span class="tab-ic">${tdef.icon}</span>
+         <span class="tab-lb" data-i18n="${tdef.i18n}">${tdef.key}</span>
+       </button>`).join("");
 
-      // Step 1: bottom-nav active highlight
-      document.querySelectorAll(".tabs .tab").forEach(b => {
-        b.classList.toggle("active", b.dataset.group === state.groupKey);
+    document.querySelectorAll(".tab").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab").forEach(b => b.classList.remove("active"));
+        document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("show"));
+        btn.classList.add("active");
+        const pane = document.querySelector(`[data-pane="${btn.dataset.tab}"]`);
+        if (pane) pane.classList.add("show");
+        const opt = sel.selectedOptions[0];
+        if (opt && btn.dataset.tab === "card") loadCardInfo(opt.value);
+        if (opt && btn.dataset.tab === "creditcard") loadCreditCard(opt.value);
+        if (opt && btn.dataset.tab === "savings") loadSavings(opt.value);
+        if (opt && btn.dataset.tab === "invest") loadInvest(opt.value);
+        if (opt && btn.dataset.tab === "brokerage") loadBrokerage(opt.value);
+        if (opt && btn.dataset.tab === "mortgage") loadMortgage(opt.value);
+        if (opt && btn.dataset.tab === "carloan") loadCarLoan(opt.value);
+        if (opt && btn.dataset.tab === "refinance") loadRefinance(opt.value);
+        if (opt && btn.dataset.tab === "invite") loadInvite(opt.value);
       });
-
-      // Step 2: sub-tab strip — rebuild it for this group, or hide it
-      const strip = document.getElementById("sub-tabs");
-      if (strip) {
-        if (state.showStrip) {
-          strip.innerHTML = state.stripPanes.map(p =>
-            `<button type="button" class="sub-tab${p === state.activePane ? " active" : ""}" data-pane="${p}">` +
-            `<span data-i18n="${PANE_LABEL_I18N[p] || p}">${p}</span>` +
-            `</button>`
-          ).join("");
-          strip.style.display = "flex";
-          strip.querySelectorAll(".sub-tab").forEach(b => {
-            b.addEventListener("click", () => showPane(b.dataset.pane));
-          });
-        } else {
-          strip.innerHTML = "";
-          strip.style.display = "none";
-        }
-      }
-
-      // Step 3: show only the active pane
-      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("show"));
-      const target = document.querySelector('[data-pane="' + state.activePane + '"]');
-      if (target) target.classList.add("show");
-
-      // Step 4: re-apply i18n (the strip created fresh DOM nodes)
-      if (typeof applyLang === "function") applyLang();
-
-      // Step 5: fetch fresh data for the now-visible pane
-      const opt = sel.selectedOptions[0];
-      const loader = PANE_LOADERS[state.activePane];
-      if (opt && loader) loader(opt.value);
-    }
-
-    function showPane(paneKey) {
-      const group = GROUP_OF_PANE[paneKey];
-      if (!group) return;
-      const state = computeNavState(group.key, paneKey);
-      if (state) applyNavState(state);
-    }
-
-    function showGroup(groupKey) {
-      const state = computeNavState(groupKey);
-      if (state) applyNavState(state);
-    }
-
-    // Helper used by offer CTAs and other deep links — go straight to a pane.
-    function switchTab(paneKey) { showPane(paneKey); }
-
-    // ---- Build bottom nav from TAB_GROUPS ----
-    document.querySelector(".tabs").innerHTML = TAB_GROUPS.map(g =>
-      `<button type="button" class="tab" data-group="${g.key}">` +
-      `<span class="tab-ic">${g.icon}</span>` +
-      `<span class="tab-lb" data-i18n="${g.i18n}">${g.key}</span>` +
-      `</button>`
-    ).join("");
-
-    document.querySelectorAll(".tabs .tab").forEach(b => {
-      b.addEventListener("click", () => showGroup(b.dataset.group));
     });
-    // Note: initial showGroup("home") fires from the IIFE tail (after all
-    // `let`-declared state is initialized) to avoid TDZ on productsData
-    // when applyLang() runs inside applyNavState.
 
     // ---- load clients ----
     async function loadClients() {
@@ -2531,7 +2451,5 @@
     loadClients();
     loadProducts();
     applyLang();
-    // All `let`-declared state is initialized by now — safe to activate.
-    showGroup("home");
   })();
   
