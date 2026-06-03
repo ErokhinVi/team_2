@@ -255,11 +255,10 @@ async def card_info(client_id: str) -> dict:
 async def credit_card_info(client_id: str) -> dict:
     """Credit card summary for a customer.
 
-    Tries backend GET /credit-card/{client_id} for real credit card data.
-    If backend doesn't have that endpoint yet, builds a simulated credit
-    card view from the customer profile (income-based limit estimate).
-    Also tries CIB POST /credit/decide with a credit-card product to check
-    eligibility.
+    1. Tries backend GET /credit-card/{client_id} for real credit card data.
+    2. If not available, asks CIB POST /card/credit-limit for a personalised
+       credit limit decision (based on income, segment, risk score).
+    3. Falls back to local heuristic if CIB is also unreachable.
     """
     customer = await _backend_get(f"/clients/{client_id}")
 
@@ -275,45 +274,58 @@ async def credit_card_info(client_id: str) -> dict:
     except httpx.HTTPError:
         pass
 
-    # Fallback: simulate credit card from customer profile
-    income = customer.get("income_rub", 0)
-    has_overdue = customer.get("has_overdue_history", False)
+    # Ask CIB for credit card limit decision
+    eligible = False
+    credit_limit = 0
+    rate_pct = 24.9
+    grace_days = 55
+    segment = customer.get("segment", "mass")
+    explanation = ""
+    reasons = []
+    source = "retail-heuristic"
 
-    # Check eligibility via CIB
-    eligible = True
-    cib_explanation = ""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
             r = await client.post(
-                f"{CIB_URL}/credit/decide",
-                json={"client_id": client_id, "product_id": "credit-card"},
+                f"{CIB_URL}/card/credit-limit",
+                json={"client_id": client_id, "product_id": "card-credit"},
             )
         if r.status_code == 200:
             cib = r.json()
             eligible = cib.get("approved", False)
-            cib_explanation = cib.get("explanation", "")
+            credit_limit = cib.get("limit_rub", 0)
+            rate_pct = cib.get("rate_pct", 24.9)
+            grace_days = cib.get("grace_period_days", 55)
+            segment = cib.get("segment", segment)
+            reasons = cib.get("reasons", [])
+            explanation = "; ".join(reasons) if reasons else (
+                "Approved" if eligible else "Declined"
+            )
+            source = "cib"
     except httpx.HTTPError:
-        # CIB not reachable — use local heuristic
+        # CIB unreachable — local heuristic
+        income = customer.get("income_rub", 0)
+        has_overdue = customer.get("has_overdue_history", False)
         eligible = income >= 25_000 and not has_overdue
-
-    # Simulated credit card parameters
-    credit_limit = 0
-    if eligible:
-        if income >= 150_000:
-            credit_limit = 500_000
-        elif income >= 80_000:
-            credit_limit = 300_000
-        elif income >= 50_000:
-            credit_limit = 150_000
-        elif income >= 25_000:
-            credit_limit = 75_000
+        if eligible:
+            if income >= 150_000:
+                credit_limit = 500_000
+            elif income >= 80_000:
+                credit_limit = 300_000
+            elif income >= 50_000:
+                credit_limit = 150_000
+            else:
+                credit_limit = 75_000
+        explanation = (
+            "Approved based on income and history" if eligible
+            else "Not eligible: insufficient income or overdue history"
+        )
 
     # Simulate some usage based on existing transactions
     tx_data = await _backend_get(f"/transactions/{client_id}", {"limit": "20"})
     txs = tx_data.get("items", [])
     card_purchases = [tx for tx in txs if tx.get("type") == "card_purchase"]
     total_spent = sum(abs(tx.get("amount_rub", 0)) for tx in card_purchases[:5])
-    # Cap simulated spending at 40% of limit
     balance_owed = min(total_spent, int(credit_limit * 0.4)) if credit_limit else 0
     available = credit_limit - balance_owed
     min_payment = max(int(balance_owed * 0.05), 1000) if balance_owed > 0 else 0
@@ -323,19 +335,18 @@ async def credit_card_info(client_id: str) -> dict:
     return {
         "client_id": client_id,
         "customer_name": customer.get("name", ""),
+        "segment": segment,
         "eligible": eligible,
-        "explanation": cib_explanation or (
-            "Approved based on income and history" if eligible
-            else "Not eligible: insufficient income or overdue history"
-        ),
+        "explanation": explanation,
+        "reasons": reasons,
         "card_number_masked": f"**** **** **** {card_suffix}",
         "credit_limit_rub": credit_limit,
         "balance_owed_rub": balance_owed,
         "available_rub": available,
         "min_payment_rub": min_payment,
-        "interest_rate_pct": 24.9,
-        "grace_period_days": 55,
-        "source": "retail-simulated",
+        "interest_rate_pct": rate_pct,
+        "grace_period_days": grace_days,
+        "source": source,
     }
 
 
