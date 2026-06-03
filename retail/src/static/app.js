@@ -1,6 +1,134 @@
   (function(){
     "use strict";
 
+    // ---- Session id + lock-aware fetch ----
+    // One id per browser tab, persisted across reloads (sessionStorage) so the
+    // same person can reload without losing their own lease for 90s.
+    let SESSION_ID = (typeof sessionStorage !== "undefined") && sessionStorage.getItem("raif_session_id");
+    if (!SESSION_ID) {
+      SESSION_ID = (window.crypto && crypto.randomUUID && crypto.randomUUID())
+                 || ("s-" + Math.random().toString(36).slice(2) + Date.now().toString(36));
+      try { sessionStorage.setItem("raif_session_id", SESSION_ID); } catch (e) {}
+    }
+    const _origFetch = window.fetch.bind(window);
+    window.fetch = function(url, opts) {
+      opts = opts || {};
+      opts.headers = Object.assign({}, opts.headers || {}, { "X-Session-Id": SESSION_ID });
+      return _origFetch(url, opts);
+    };
+
+    // ---- Profile lock state ----
+    let lockedClientId = null;        // client we hold the lease on
+    let heartbeatTimer = null;
+    let lockBlocked = false;          // true when another session holds it
+
+    async function acquireLock(clientId, holderLabel) {
+      try {
+        const r = await fetch("/api/lock/acquire", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: clientId, holder_label: holderLabel || "" }),
+        });
+        if (r.ok) {
+          lockedClientId = clientId;
+          lockBlocked = false;
+          startHeartbeat();
+          renderLockBanner(null);
+          setActionsDisabled(false);
+          return true;
+        }
+        // 423 — someone else holds it
+        const info = await r.json().catch(() => ({}));
+        lockedClientId = null;
+        lockBlocked = true;
+        stopHeartbeat();
+        renderLockBanner(info);
+        setActionsDisabled(true);
+        return false;
+      } catch (e) {
+        // Server unreachable — fail open so the demo keeps working
+        lockedClientId = clientId;
+        lockBlocked = false;
+        renderLockBanner(null);
+        setActionsDisabled(false);
+        return true;
+      }
+    }
+
+    async function releaseLock() {
+      if (!lockedClientId) return;
+      const cid = lockedClientId;
+      lockedClientId = null;
+      stopHeartbeat();
+      try {
+        await fetch("/api/lock/release", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: cid }),
+        });
+      } catch (e) {}
+    }
+
+    function startHeartbeat() {
+      stopHeartbeat();
+      heartbeatTimer = setInterval(() => {
+        if (!lockedClientId) return;
+        fetch("/api/lock/heartbeat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ client_id: lockedClientId }),
+        }).catch(() => {});
+      }, 30000);
+    }
+    function stopHeartbeat() {
+      if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+    }
+
+    // Best-effort release when the tab closes.
+    window.addEventListener("beforeunload", () => {
+      if (lockedClientId && navigator.sendBeacon) {
+        const data = new Blob(
+          [JSON.stringify({ client_id: lockedClientId })],
+          { type: "application/json" },
+        );
+        navigator.sendBeacon("/api/lock/release", data);
+      }
+    });
+
+    function renderLockBanner(info) {
+      const el = document.getElementById("lock-banner");
+      if (!el) return;
+      if (!info) { el.innerHTML = ""; el.style.display = "none"; return; }
+      const heldBy = info.held_by || "another session";
+      const wait = info.expires_in != null ? ` (~${info.expires_in}s)` : "";
+      el.innerHTML = `
+        <div class="lock-card">
+          <div class="lock-icon">🔒</div>
+          <div class="lock-text">
+            <b>${t("locked_title")}</b>
+            <div>${t("locked_body")} — ${heldBy}${wait}.</div>
+          </div>
+          <button class="link-btn" id="lock-retry">${t("locked_retry")}</button>
+        </div>`;
+      el.style.display = "block";
+      const retry = document.getElementById("lock-retry");
+      if (retry) retry.addEventListener("click", () => {
+        const opt = sel.selectedOptions[0];
+        if (opt) acquireLock(opt.value, opt.dataset.name || "");
+      });
+    }
+
+    function setActionsDisabled(disabled) {
+      document.querySelectorAll(
+        '.phone form button[type="submit"], .phone .btn.primary, .phone .link-btn'
+      ).forEach(b => {
+        // Don't disable the lock banner's own retry button
+        if (b.id === "lock-retry") return;
+        b.disabled = disabled;
+        b.classList.toggle("is-locked", disabled);
+      });
+    }
+
     // ---- Bottom-nav registry ----
     // To add a feature: add an entry here, a matching <div class="tab-pane"
     // data-pane="KEY">, an i18n label, and (optionally) a per-tab loader below.
@@ -182,6 +310,9 @@
         redeem_prompt:    "Сколько кешбэка перевести?",
         redeem_invalid:   "Неверная сумма",
         redeem_ok:        "Кешбэк зачислен на счёт",
+        locked_title:     "Профиль занят",
+        locked_body:      "Сейчас с этим клиентом работает",
+        locked_retry:     "Повторить",
         investor_profile_label: "Инвестиционный профиль",
         not_suitable:     "Не подходит вашему профилю",
         min_investment:   "Минимум",
@@ -361,6 +492,9 @@
         redeem_prompt:    "How much cashback to redeem?",
         redeem_invalid:   "Invalid amount",
         redeem_ok:        "Cashback credited to your account",
+        locked_title:     "Profile in use",
+        locked_body:      "Currently being used by",
+        locked_retry:     "Try again",
         investor_profile_label: "Investor profile",
         not_suitable:     "Not suitable for your profile",
         min_investment:   "Minimum",
@@ -482,11 +616,22 @@
       } catch(e) { console.error(e); }
     }
 
-    function onPickClient() {
+    async function onPickClient() {
       const opt = sel.selectedOptions[0];
       if (!opt) return;
       balanceV.textContent = fmt.format(+opt.dataset.balance || 0);
       topbarWho.textContent = opt.dataset.name;
+
+      // Release any previous lease, then try to acquire this profile.
+      if (lockedClientId && lockedClientId !== opt.value) {
+        await releaseLock();
+      }
+      const acquired = await acquireLock(opt.value, opt.dataset.name || "");
+      if (!acquired) {
+        // Banner is up; skip the data loads — they're harmless reads but pointless.
+        return;
+      }
+
       loadTx(opt.value);
       loadCardInfo(opt.value);
       loadCreditCard(opt.value);

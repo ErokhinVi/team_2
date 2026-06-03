@@ -721,4 +721,27 @@
       font-size: 11px; font-weight: 600; color: var(--muted);
       border: 1px dashed var(--rule); padding: 4px 10px; border-radius: 20px;
     }
+
+    /* ---- Profile-lock banner ---- */
+    #lock-banner { padding: 0 22px; }
+    .lock-card {
+      display: flex; align-items: center; gap: 12px;
+      background: linear-gradient(135deg, #fff5d4 0%, #ffe9a1 100%);
+      border: 1px solid #f0d460;
+      border-radius: 16px;
+      padding: 14px 16px;
+      margin: 8px 0 4px;
+      box-shadow: 0 6px 20px rgba(204,164,0,0.18);
+    }
+    .lock-card .lock-icon { font-size: 22px; }
+    .lock-card .lock-text { flex: 1; font-size: 13px; line-height: 1.4; color: var(--text); }
+    .lock-card .lock-text b { display: block; font-weight: 700; margin-bottom: 2px; }
+    .lock-card .link-btn { background: var(--ink); color: var(--raiff); border-color: var(--ink); }
+    .lock-card .link-btn:hover { opacity: 0.9; }
+
+    /* Greyed-out controls when another session holds the profile */
+    button.is-locked, .btn.is-locked, .link-btn.is-locked {
+      opacity: 0.45; cursor: not-allowed !important;
+      filter: grayscale(0.4);
+    }
   
