@@ -164,6 +164,18 @@ MAX_RISK_SCORE_STANDARD = 0.55   # for larger amounts (> 6x monthly income)
 MAX_RISK_SCORE_SMALL = 0.65      # for smaller amounts (<= 6x monthly income)
 MIN_INCOME_RUB = 30_000
 
+# Responsible-lending / affordability rules (apply when a loan amount is given).
+LOAN_MAX_DSTI = 0.50             # total debt-service-to-income cap (incl. existing debt)
+LOAN_MIN_RESIDUAL_RUB = 20_000   # money that must remain after all debt payments
+LOAN_DEFAULT_TERM_MONTHS = 36
+
+# Credit-card limit guardrails (cap revolving exposure regardless of segment).
+CREDIT_CARD_MAX_INCOME_MULT = 6.0
+CREDIT_CARD_ABS_CAP_RUB = 1_500_000
+
+# Investment concentration cap (max share of balance in one holding) by risk level.
+CONCENTRATION_CAP_BY_RISK = {1: 0.90, 2: 0.90, 3: 0.70, 4: 0.50, 5: 0.50}
+
 # Mortgage thresholds
 MORTGAGE_MAX_RISK = 0.55
 MORTGAGE_MIN_INCOME = 40_000     # mortgages need a stronger income
@@ -216,6 +228,10 @@ class DecideRequest(BaseModel):
     client_id: str
     product_id: str
     amount_rub: float | None = None
+    term_months: int = LOAN_DEFAULT_TERM_MONTHS
+    # Existing monthly debt service, if known — lets cib compute true aggregate
+    # debt burden. Until backend exposes it, defaults to 0 (single-loan view).
+    existing_monthly_debt_rub: float | None = None
 
 
 class ActivateRequest(BaseModel):
@@ -249,6 +265,7 @@ class MortgageRequest(BaseModel):
     property_price_rub: float
     down_payment_rub: float
     term_years: int = 20
+    existing_monthly_debt_rub: float | None = None
 
 
 class RefinanceRequest(BaseModel):
@@ -311,27 +328,56 @@ async def credit_decide(req: DecideRequest) -> dict:
 
     # Determine applicable risk threshold based on amount vs income
     income = customer.get("income_rub", 0)
+    risk = customer.get("risk_score", 1.0)
     small_loan_ceiling = income * 6  # 6 monthly salaries = "small"
     is_small_amount = req.amount_rub is not None and req.amount_rub <= small_loan_ceiling
     max_risk = MAX_RISK_SCORE_SMALL if is_small_amount else MAX_RISK_SCORE_STANDARD
 
-    # Decision rules
+    # Risk-based price the customer would receive — needed for affordability.
+    candidate_rate = _risk_rate(product["rate_pct"], risk)
+
+    # Decision rules (deterministic — these are the binding reasons)
     reasons: list[str] = []
-    approved = True
 
     if customer.get("has_overdue_history"):
-        approved = False
         reasons.append("overdue payment history")
+    if risk > max_risk:
+        reasons.append(f"risk score too high ({risk:.2f})")
+    if income < MIN_INCOME_RUB:
+        reasons.append(f"income below minimum ({income} < {MIN_INCOME_RUB})")
 
-    if customer.get("risk_score", 1.0) > max_risk:
-        approved = False
-        reasons.append(f"risk score too high ({customer['risk_score']:.2f})")
+    # Affordability / responsible-lending gate — only for term loans with an amount.
+    disclosure: dict = {}
+    is_term_loan = product["kind"] == "credit"
+    if is_term_loan and req.amount_rub is not None and income > 0:
+        term = max(1, req.term_months)
+        payment = _monthly_payment(req.amount_rub, candidate_rate, term)
+        existing = req.existing_monthly_debt_rub or 0.0
+        total_service = existing + payment
+        dsti = total_service / income
+        residual = income - total_service
+        if dsti > LOAN_MAX_DSTI:
+            reasons.append(
+                f"debt-service-to-income too high ({dsti*100:.0f}% > {int(LOAN_MAX_DSTI*100)}%)"
+            )
+        if residual < LOAN_MIN_RESIDUAL_RUB:
+            reasons.append(
+                f"insufficient residual income after payments ({residual:.0f} < {LOAN_MIN_RESIDUAL_RUB})"
+            )
+        # Total cost of credit disclosure (effective APR from monthly compounding)
+        eff_apr = ((1 + candidate_rate / 100 / 12) ** 12 - 1) * 100
+        disclosure = {
+            "monthly_payment_rub": round(payment),
+            "total_repayment_rub": round(payment * term),
+            "total_cost_of_credit_rub": round(payment * term - req.amount_rub),
+            "effective_apr_pct": round(eff_apr, 1),
+            "dsti_pct": round(dsti * 100, 1),
+            "existing_debt_included": req.existing_monthly_debt_rub is not None,
+        }
 
-    if customer.get("income_rub", 0) < MIN_INCOME_RUB:
-        approved = False
-        reasons.append(f"income below minimum ({customer['income_rub']} < {MIN_INCOME_RUB})")
+    approved = not reasons
 
-    # Human-readable explanation via LLM (best-effort)
+    # Human-readable explanation via LLM — ADVISORY ONLY, never the binding reason.
     explanation = ""
     try:
         verdict = "approved" if approved else "declined"
@@ -346,20 +392,20 @@ async def credit_decide(req: DecideRequest) -> dict:
         explanation = "Decision made based on your financial profile." if approved else \
             "We are unable to approve this application at this time."
 
-    # Risk-based pricing: personalised rate for approved customers.
-    personalised_rate = _risk_rate(product["rate_pct"], customer.get("risk_score", 1.0)) \
-        if approved else None
-
-    return {
+    result = {
         "client_id": req.client_id,
         "product_id": req.product_id,
         "approved": approved,
-        "rate_pct": personalised_rate,
+        "rate_pct": candidate_rate if approved else None,
         "base_rate_pct": product["rate_pct"],
         "reasons": reasons,
+        "binding_decision_basis": "reasons",
         "explanation": explanation,
+        "explanation_is_advisory": True,
         "customer_name": customer.get("name"),
     }
+    result.update(disclosure)
+    return result
 
 
 @app.post("/mortgage/decide")
@@ -398,9 +444,13 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
         reasons.append(f"risk score too high ({risk:.2f})")
     if income < MORTGAGE_MIN_INCOME:
         reasons.append(f"income below minimum ({income} < {MORTGAGE_MIN_INCOME})")
-    if income > 0 and monthly_payment > income * MORTGAGE_MAX_DTI:
+    # Debt-service-to-income, including any existing obligations (aggregate burden).
+    existing = req.existing_monthly_debt_rub or 0.0
+    total_service = monthly_payment + existing
+    if income > 0 and total_service > income * MORTGAGE_MAX_DTI:
         reasons.append(
-            f"monthly payment {monthly_payment} exceeds {int(MORTGAGE_MAX_DTI*100)}% of income ({income})"
+            f"total debt payments {round(total_service)} exceed "
+            f"{int(MORTGAGE_MAX_DTI*100)}% of income ({income})"
         )
 
     approved = not reasons
@@ -429,6 +479,7 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
         explanation = ("Your mortgage application has been approved." if approved
                        else "We are unable to approve this mortgage at this time.")
 
+    eff_apr = ((1 + product["rate_pct"] / 100 / 12) ** 12 - 1) * 100
     return {
         "client_id": req.client_id,
         "product_id": "mortgage",
@@ -440,10 +491,16 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
         "down_payment_pct": round(down_pct, 1),
         "ltv_pct": round(ltv_pct, 1),
         "rate_pct": product["rate_pct"],
+        "effective_apr_pct": round(eff_apr, 1),
         "term_years": term_years,
         "monthly_payment_rub": monthly_payment,
+        "total_repayment_rub": round(monthly_payment * n),
+        "total_cost_of_credit_rub": round(monthly_payment * n - loan_rub),
+        "dsti_pct": round(total_service / income * 100, 1) if income > 0 else None,
         "reasons": reasons,
+        "binding_decision_basis": "reasons",
         "explanation": explanation,
+        "explanation_is_advisory": True,
         "customer_name": customer.get("name"),
     }
 
@@ -604,6 +661,8 @@ async def card_credit_limit(req: ActivateRequest) -> dict:
     if standard_eligible:
         multiplier = CREDIT_CARD_LIMIT_MULTIPLIER.get(segment, 2.0)
         raw_limit = income * multiplier * (1.0 - risk)
+        # Guardrail: cap revolving exposure at 6x monthly income and an absolute ceiling.
+        raw_limit = min(raw_limit, income * CREDIT_CARD_MAX_INCOME_MULT, CREDIT_CARD_ABS_CAP_RUB)
         limit = round(raw_limit / 10_000) * 10_000
         used_product = product
         note = None
@@ -872,10 +931,15 @@ def _suitability_check(product: dict, prof: dict, amount_rub: float | None) -> l
             reasons.append(
                 f"amount below product minimum ({amount_rub} < {product['min_investment_rub']})"
             )
-        # Concentration guard: don't let a customer put more than 50% of their
-        # balance into a single higher-risk (level >= 4) investment.
-        if product["risk_level"] >= 4 and amount_rub > prof["balance_rub"] * 0.5:
-            reasons.append("amount exceeds 50% of balance for a high-risk product (concentration limit)")
+        # Concentration guard: cap the share of balance going into one holding,
+        # tighter for riskier products. Keeps an emergency buffer intact.
+        cap = CONCENTRATION_CAP_BY_RISK.get(product["risk_level"], 0.50)
+        balance = prof["balance_rub"]
+        if balance > 0 and amount_rub > balance * cap:
+            reasons.append(
+                f"amount exceeds {int(cap*100)}% of balance for a risk-{product['risk_level']} "
+                f"product (concentration limit)"
+            )
 
     return reasons
 
@@ -1191,16 +1255,25 @@ def _product_highlight(p: dict) -> str:
 
 
 def _preapprove_consumer_loan(c: dict) -> dict | None:
-    """Largest consumer loan the customer is already approved for, or None."""
+    """Largest consumer loan the customer is already approved for, or None.
+    Capped by affordability so the advertised figure won't fail at decision time."""
     income = c.get("income_rub", 0)
     risk = c.get("risk_score", 1.0)
     if c.get("has_overdue_history") or income < MIN_INCOME_RUB or risk > MAX_RISK_SCORE_STANDARD:
         return None
-    amount = min(round(income * 12 * (1.0 - risk) / 10_000) * 10_000, 3_000_000)
-    if amount < 30_000:
-        return None
     prod = next(p for p in PRODUCTS if p["id"] == "credit-consumer")
     rate = _risk_rate(prod["rate_pct"], risk)
+    # Affordability cap: largest loan whose payment stays within DSTI and residual.
+    max_payment = min(income * LOAN_MAX_DSTI, income - LOAN_MIN_RESIDUAL_RUB)
+    if max_payment <= 0:
+        return None
+    mr = rate / 100 / 12
+    n = LOAN_DEFAULT_TERM_MONTHS
+    affordable = max_payment * (1 - (1 + mr) ** -n) / mr if mr > 0 else max_payment * n
+    amount = min(round(income * 12 * (1.0 - risk) / 10_000) * 10_000,
+                 int(affordable // 10_000) * 10_000, 3_000_000)
+    if amount < 30_000:
+        return None
     return {
         "product_id": "credit-consumer", "type": "loan", "name": prod["name"],
         "headline": f"You're pre-approved for a loan up to {amount:,} ₽".replace(",", " "),
@@ -1223,7 +1296,8 @@ def _preapprove_credit_card(c: dict) -> dict | None:
         return None
     if standard:
         mult = CREDIT_CARD_LIMIT_MULTIPLIER.get(segment, 2.0)
-        limit = round(income * mult * (1.0 - risk) / 10_000) * 10_000
+        raw = min(income * mult * (1.0 - risk), income * CREDIT_CARD_MAX_INCOME_MULT, CREDIT_CARD_ABS_CAP_RUB)
+        limit = round(raw / 10_000) * 10_000
         pid = "card-credit"
     else:
         limit = min(round(income * 0.5 / 5_000) * 5_000, SECURED_CARD_MAX_LIMIT)
