@@ -347,6 +347,17 @@
         friends_tab:      "Друзья",
         debit_short:      "Дебетовая",
         credit_short:     "Кредитная",
+        amount_bonus:     "бонус за сумму",
+        loyalty_bonus:    "бонус лояльности",
+        includes:         "включает",
+        earn:             "Заработаете",
+        per_100k:         "со 100 000 ₽",
+        deposit_insured:  "Вклады застрахованы АСВ до 1 400 000 ₽",
+        your_rewards:     "Ваш статус",
+        tier_standard:    "Стандарт",
+        tier_silver:      "Серебро",
+        tier_gold:        "Золото",
+        tier_platinum:    "Платина",
         carloan_tab:      "Автокредит",
         loading_carloan:  "Загрузка автокредита...",
         carloan_title:    "Калькулятор автокредита",
@@ -587,6 +598,17 @@
         friends_tab:      "Friends",
         debit_short:      "Debit",
         credit_short:     "Credit",
+        amount_bonus:     "balance bonus",
+        loyalty_bonus:    "loyalty bonus",
+        includes:         "includes",
+        earn:             "Earn",
+        per_100k:         "per 100,000 ₽",
+        deposit_insured:  "Deposits insured by DIA up to 1,400,000 ₽",
+        your_rewards:     "Your rewards",
+        tier_standard:    "Standard",
+        tier_silver:      "Silver",
+        tier_gold:        "Gold",
+        tier_platinum:    "Platinum",
         carloan_tab:      "Car loan",
         loading_carloan:  "Loading car loan...",
         carloan_title:    "Car-loan calculator",
@@ -687,6 +709,7 @@
         loadBrokerage(opt.value);
         loadMortgage(opt.value);
         loadOffers(opt.value);
+        loadLoyalty(opt.value);
         loadInvite(opt.value);
       }
       if (productsData.length) renderProducts();
@@ -714,6 +737,7 @@
     const brokerageContainer = document.getElementById("brokerage-container");
     const mortgageContainer = document.getElementById("mortgage-container");
     const offersContainer = document.getElementById("offers-container");
+    const loyaltyContainer = document.getElementById("loyalty-card");
     const inviteContainer = document.getElementById("invite-container");
 
     // Pure function — what should be on screen for a given (group, override).
@@ -843,6 +867,7 @@
       loadMortgage(opt.value);
       loadOffers(opt.value);
       loadInvite(opt.value);
+      loadLoyalty(opt.value);
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
@@ -973,6 +998,42 @@
           }
         });
       }
+    }
+
+    // ---- Loyalty card (home tab) ----
+    async function loadLoyalty(clientId) {
+      try {
+        const r = await fetch(`/api/loyalty/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        renderLoyalty(await r.json());
+      } catch (e) {
+        if (loyaltyContainer) loyaltyContainer.innerHTML = "";
+      }
+    }
+
+    function renderLoyalty(d) {
+      if (!loyaltyContainer) return;
+      const tier = (d && d.tier) || "standard";
+      // If tier is standard with no perks and CIB wasn't reached, skip the card entirely.
+      if (d.source === "unavailable" && tier === "standard") {
+        loyaltyContainer.innerHTML = "";
+        return;
+      }
+      const perks = (d.perks || []).slice(0, 3);
+      const hint = d.next_tier_hint || "";
+      loyaltyContainer.innerHTML = `
+        <div class="loyalty-card tier-${tier}">
+          <div class="lc-row">
+            <div>
+              <div class="lc-label">${t("your_rewards")}</div>
+              <div class="lc-tier">${t("tier_" + tier) || tier}</div>
+            </div>
+            <div class="lc-badge">${tier.toUpperCase()}</div>
+          </div>
+          ${perks.length ? `<ul class="lc-perks">${perks.map(p => `<li>${p}</li>`).join("")}</ul>` : ""}
+          ${hint ? `<div class="lc-hint">${hint}</div>` : ""}
+        </div>
+      `;
     }
 
     // ---- Next-best-offers (home tab) ----
@@ -1483,12 +1544,22 @@
         productsHtml = `<div class="section-title" style="margin-top:18px">${t("available_deposits")}</div>` +
           products.map(p => {
             const sel = p.id === selectedDepositId ? "selected" : "";
+            // Earn-per-year preview on a 100k reference amount (just illustrative).
+            const ref = 100000;
+            const months = p.term_months || 12;
+            const annualGain = p.rate_pct
+              ? Math.round(ref * (p.rate_pct / 100) * (months / 12))
+              : 0;
+            const earnLine = annualGain
+              ? `<div class="do-earn">${t("earn")} ~${fmt.format(annualGain)} ₽ ${t("per_100k")}</div>`
+              : "";
             return `<div class="deposit-offer ${sel}" data-deposit-id="${p.id}">
               <div class="do-top">
                 <span class="do-name">${p.name}</span>
                 <span class="do-rate">${p.rate_pct || ""}% <small>${t("per_year")}</small></span>
               </div>
               <div class="do-detail">${p.description || ""}</div>
+              ${earnLine}
             </div>`;
           }).join("");
       } else {
@@ -1506,6 +1577,7 @@
             </div>
             <button class="btn primary" type="submit">${t("deposit_open_btn")}</button>
           </form>
+          <div class="trust-line">🛡️ ${t("deposit_insured")}</div>
           <div id="deposit-result"></div>
         </div>
       ` : "";
@@ -1598,8 +1670,18 @@
                 ? ` · ${res.term_months} ${t("months")}`
                 : "";
               const prodName = res.product_name ? `${res.product_name} — ` : "";
+              // Surface CIB's automatic deposit rate bonuses so the customer
+              // sees they were rewarded.
+              const bonusBits = [];
+              if (res.amount_bonus_pct)
+                bonusBits.push(`+${res.amount_bonus_pct}% ${t("amount_bonus")}`);
+              if (res.loyalty_bonus_pct)
+                bonusBits.push(`+${res.loyalty_bonus_pct}% ${t("loyalty_bonus")}`);
+              const bonusLine = bonusBits.length
+                ? `<br/><span class="bonus-line">${t("includes")} ${bonusBits.join(", ")}</span>`
+                : "";
               depResult.innerHTML = `<div class="alert ok">
-                ${t("deposit_success")} ${prodName}${fmt.format(res.amount_rub || amount)} ₽ · ${res.rate_pct}%${termInfo}<br/>
+                ${t("deposit_success")} ${prodName}${fmt.format(res.amount_rub || amount)} ₽ · ${res.rate_pct}%${termInfo}${bonusLine}<br/>
                 ${estIncome}${maturity}
               </div>`;
               depForm.reset();

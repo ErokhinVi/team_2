@@ -890,3 +890,37 @@
     .pab-headline { font-size: 15px; font-weight: 600; line-height: 1.35; }
     .pab-cta { font-size: 12px; opacity: 0.7; margin-top: 4px; }
 
+
+    /* ---- Loyalty card (home) ---- */
+    .loyalty-card {
+      border-radius: 16px; padding: 14px 16px;
+      margin-bottom: 14px;
+      background: linear-gradient(135deg, #2a2620 0%, #3d3730 60%, #211d18 100%);
+      color: #f6f3ec;
+      box-shadow: 0 10px 26px rgba(40,34,20,0.18);
+    }
+    .loyalty-card.tier-silver   { background: linear-gradient(135deg, #6b7686 0%, #93a0b0 55%, #5a6573 100%); }
+    .loyalty-card.tier-gold     { background: linear-gradient(135deg, #c2932a 0%, #f4d27a 55%, #a87a1a 100%); color: #1f1d18; }
+    .loyalty-card.tier-platinum { background: linear-gradient(135deg, #1f3c66 0%, #4974b2 55%, #1a2a4a 100%); }
+    .lc-row { display: flex; justify-content: space-between; align-items: center; }
+    .lc-label { font-size: 10px; opacity: 0.65; letter-spacing: 0.12em; text-transform: uppercase; font-weight: 700; }
+    .lc-tier  { font-size: 20px; font-weight: 800; margin-top: 2px; }
+    .lc-badge {
+      font-size: 10px; font-weight: 800; letter-spacing: 0.1em;
+      padding: 4px 10px; border-radius: 20px;
+      background: rgba(255,255,255,0.18);
+    }
+    .lc-perks { margin: 10px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.4; opacity: 0.92; }
+    .lc-hint { margin-top: 10px; font-size: 12px; opacity: 0.85; }
+
+    /* ---- Deposit yield preview + bonuses + trust line ---- */
+    .deposit-offer .do-earn {
+      margin-top: 8px; font-size: 12px; font-weight: 600;
+      color: var(--good);
+    }
+    .bonus-line { font-size: 12px; opacity: 0.85; font-weight: 500; }
+    .trust-line {
+      margin-top: 10px; font-size: 11px;
+      color: var(--text-2); text-align: center;
+      padding: 8px; background: var(--bg); border-radius: 8px;
+    }
