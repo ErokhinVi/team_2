@@ -49,6 +49,14 @@ _transactions: list[dict[str, Any]] = []
 # Журнал открытых продуктов: кто, какой продукт и когда оформил.
 _product_events: list[dict[str, Any]] = []
 _product_events_by_client: dict[str, list[dict[str, Any]]] = {}
+# Кредитная история: прошлые и текущие займы клиента (из seed). По активным
+# считаем текущую долговую нагрузку (аннуитетный платёж).
+_credit_history: list[dict[str, Any]] = []
+_credit_history_by_client: dict[str, list[dict[str, Any]]] = {}
+# Минимальный платёж по кредитной карте — доля от текущей задолженности.
+CREDIT_CARD_MIN_PAYMENT_RATE = 0.05
+# Какие продукты в кредитной истории считаем рассрочкой/займом (не картой).
+_INSTALMENT_LOANS = {"consumer_credit", "auto_credit", "mortgage"}
 
 # Инвестиции: каталог инструментов с текущей ценой, портфели клиентов и
 # журнал заявок. Цены — фиксированный каталог (для воспроизводимости);
@@ -125,6 +133,11 @@ def _load_seed() -> None:
         else:
             t["cashback_rub"] = 0
     _transactions.extend(txs)
+    # Кредитная история для расчёта долговой нагрузки.
+    ch = _load_jsonl(SEED_DIR / "credit_history.jsonl")
+    _credit_history.extend(ch)
+    for r in ch:
+        _credit_history_by_client.setdefault(r["client_id"], []).append(r)
 
 
 _load_seed()
@@ -193,6 +206,65 @@ def _seed_credit_cards() -> None:
 
 _seed_credit_cards()
 
+
+def _monthly_annuity(principal: float, rate_pct: float, term_months: int) -> int:
+    """Ежемесячный аннуитетный платёж по займу. Если ставка 0 — просто
+    тело/срок."""
+    n = int(term_months)
+    if n <= 0:
+        return 0
+    r = float(rate_pct) / 100 / 12
+    if r <= 0:
+        return int(round(principal / n))
+    pay = principal * r / (1 - (1 + r) ** (-n))
+    return int(round(pay))
+
+
+def _debt_service(client_id: str) -> dict[str, Any]:
+    """Текущая ежемесячная долговая нагрузка клиента: аннуитеты по активным
+    займам + минимальные платежи по кредитным картам."""
+    loans = []
+    loan_total = 0
+    for ch in _credit_history_by_client.get(client_id, []):
+        if ch.get("status") != "active" or ch.get("product") not in _INSTALMENT_LOANS:
+            continue
+        pay = _monthly_annuity(ch["principal_rub"], ch["rate_pct"], ch["term_months"])
+        loan_total += pay
+        loans.append({
+            "product": ch["product"], "principal_rub": ch["principal_rub"],
+            "rate_pct": ch["rate_pct"], "term_months": ch["term_months"],
+            "monthly_payment_rub": pay,
+        })
+    cards = []
+    card_total = 0
+    for card in _cards_by_client.get(client_id, []):
+        if card.get("status") != "active":
+            continue
+        owed = int(card["balance_owed_rub"])
+        if owed <= 0:
+            continue
+        mn = int(round(owed * CREDIT_CARD_MIN_PAYMENT_RATE))
+        card_total += mn
+        cards.append({"card_id": card["card_id"], "balance_owed_rub": owed,
+                      "min_payment_rub": mn})
+    return {
+        "existing_monthly_debt_rub": loan_total + card_total,
+        "loan_monthly_rub": loan_total,
+        "card_monthly_rub": card_total,
+        "loans": loans,
+        "credit_cards": cards,
+    }
+
+
+def _seed_debt_service() -> None:
+    """Проставляем поле existing_monthly_debt_rub каждому клиенту при загрузке."""
+    for c in _clients:
+        c["existing_monthly_debt_rub"] = _debt_service(c["id"])[
+            "existing_monthly_debt_rub"]
+
+
+_seed_debt_service()
+
 app = FastAPI(title="backend — ядро данных", version="1.0.0")
 
 
@@ -218,7 +290,12 @@ async def list_clients(
         out = [c for c in out if bool(c.get("has_overdue_history")) == has_overdue]
     if min_income is not None:
         out = [c for c in out if c.get("income_rub", 0) >= min_income]
-    return {"total": len(out), "items": out[:limit]}
+    items = out[:limit]
+    # Освежаем долговую нагрузку (карты меняются), чтобы поле было актуальным.
+    for c in items:
+        c["existing_monthly_debt_rub"] = _debt_service(c["id"])[
+            "existing_monthly_debt_rub"]
+    return {"total": len(out), "items": items}
 
 
 @app.get("/clients/{client_id}")
@@ -226,7 +303,21 @@ async def get_client(client_id: str) -> dict:
     c = _clients_by_id.get(client_id)
     if not c:
         raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    c["existing_monthly_debt_rub"] = _debt_service(client_id)[
+        "existing_monthly_debt_rub"]
     return c
+
+
+@app.get("/clients/{client_id}/debt-service")
+async def client_debt_service(client_id: str) -> dict:
+    """Текущая ежемесячная долговая нагрузка клиента (для проверки
+    кредитоспособности в cib). Возвращает `{client_id,
+    existing_monthly_debt_rub, loan_monthly_rub, card_monthly_rub, loans: [...],
+    credit_cards: [...]}`. `existing_monthly_debt_rub` — сумма аннуитетов по
+    активным займам и минимальных платежей по картам. `404`, если клиента нет."""
+    if client_id not in _clients_by_id:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    return {"client_id": client_id, **_debt_service(client_id)}
 
 
 @app.get("/transactions/{client_id}")

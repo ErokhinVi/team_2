@@ -19,10 +19,25 @@ transactions_loaded, credit_cards_loaded}`.
 
 Возвращает `{total, items: [клиенты]}`. Клиент — JSON с полями из seed:
 `id, name, segment, balance_rub, income_rub, has_overdue_history`, а также
-`cashback_balance_rub` (накопленный кешбэк клиента) и другими.
+`cashback_balance_rub` (накопленный кешбэк клиента), `existing_monthly_debt_rub`
+(текущая ежемесячная долговая нагрузка — для проверки кредитоспособности) и
+другими.
 
 ### GET /clients/{client_id}
-Полная карточка одного клиента. Возвращает объект клиента. `404`, если не найден.
+Полная карточка одного клиента. Возвращает объект клиента (в т.ч.
+`existing_monthly_debt_rub` — актуальная ежемесячная долговая нагрузка).
+`404`, если не найден.
+
+### GET /clients/{client_id}/debt-service
+Текущая ежемесячная долговая нагрузка клиента — для affordability/debt-burden
+проверки в cib. Возвращает `{client_id, existing_monthly_debt_rub,
+loan_monthly_rub, card_monthly_rub, loans: [{product, principal_rub, rate_pct,
+term_months, monthly_payment_rub}], credit_cards: [{card_id, balance_owed_rub,
+min_payment_rub}]}`. `existing_monthly_debt_rub` = сумма аннуитетных платежей по
+активным займам (из кредитной истории) + минимальные платежи по картам (5% от
+текущей задолженности). `404`, если клиента нет. Это же значение есть и прямо в
+объекте клиента (`GET /clients/{id}`), чтобы retail мог передать его в cib как
+`existing_monthly_debt_rub`.
 
 ### GET /transactions/{client_id}
 Транзакции клиента, новые сверху. Параметры: `limit` (по умолчанию 20).
