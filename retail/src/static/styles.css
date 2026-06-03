@@ -864,4 +864,29 @@
       font-size: 14px; font-weight: 700; color: var(--good);
       font-variant-numeric: tabular-nums;
     }
-  
+
+    /* ===== Pre-approved banners ===== */
+    .pre-approved-banners {
+      display: flex; gap: 10px; overflow-x: auto;
+      padding: 0 0 8px; scroll-snap-type: x mandatory;
+      -webkit-overflow-scrolling: touch;
+    }
+    .pre-approved-banner {
+      all: unset; cursor: pointer;
+      flex: 0 0 85%; scroll-snap-align: start;
+      background: linear-gradient(135deg, #1a5e2a 0%, #2E7D46 50%, #1a5e2a 100%);
+      color: #fff; border-radius: 16px;
+      padding: 16px 18px; display: flex; flex-direction: column;
+      gap: 6px; box-shadow: 0 6px 20px rgba(46,125,70,0.25);
+      transition: transform 0.15s;
+    }
+    .pre-approved-banner:active { transform: scale(0.97); }
+    .pab-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.6px;
+      background: rgba(255,255,255,0.2); border-radius: 6px;
+      padding: 2px 8px; align-self: flex-start;
+    }
+    .pab-headline { font-size: 15px; font-weight: 600; line-height: 1.35; }
+    .pab-cta { font-size: 12px; opacity: 0.7; margin-top: 4px; }
+

@@ -90,17 +90,58 @@ def _validate(client_id: str, car_price: float, term_years: int) -> None:
 
 
 async def _decide(client_id: str, car_price: float, down_payment: float, term_years: int) -> dict:
-    cib = await try_post(CIB_URL, "/car-loan/decide", {
-        "client_id": client_id,
-        "car_price_rub": car_price,
-        "down_payment_rub": down_payment,
-        "term_years": term_years,
-    }, timeout=5.0)
+    """Route the car-loan decision through CIB's /credit/decide using the
+    `credit-auto` product (13.9% base, risk-priced). Retail computes the
+    monthly payment from CIB's personalised rate."""
+    cib = await try_post(CIB_URL, "/credit/decide",
+                         {"client_id": client_id, "product_id": "credit-auto"},
+                         timeout=5.0)
     if cib:
-        monthly = cib.get("monthly_payment_rub", 0) or 0
-        cib["total_to_pay_rub"] = round(monthly * term_years * 12, 2)
-        cib["source"] = "cib"
-        return cib
+        approved = bool(cib.get("approved"))
+        rate_pct = cib.get("rate_pct", DEFAULT_RATE_PCT)
+        base_rate_pct = cib.get("base_rate_pct")
+        loan = max(car_price - down_payment, 0)
+        term_months = term_years * 12
+        monthly = _monthly_payment(loan, rate_pct, term_months) if approved else 0
+        total = round(monthly * term_months, 2) if approved else 0
+        customer = await backend_get(f"/clients/{client_id}")
+        income = customer.get("income_rub", 0) or 0
+        # Pre-flight checks Gert's credit/decide doesn't enforce (down payment + DTI)
+        extra_reasons = []
+        if approved:
+            if car_price > 0 and (down_payment / car_price * 100) < MIN_DOWN_PAYMENT_PCT:
+                extra_reasons.append(f"down payment below {MIN_DOWN_PAYMENT_PCT}% of car price")
+            if loan < MIN_LOAN_RUB:
+                extra_reasons.append(f"loan below minimum ({loan} < {MIN_LOAN_RUB})")
+            dti_pct = round((monthly / income) * 100, 2) if income > 0 else None
+            if dti_pct is not None and dti_pct > MAX_DTI_PCT:
+                extra_reasons.append(f"DTI {dti_pct}% exceeds maximum {MAX_DTI_PCT}%")
+        if extra_reasons:
+            approved = False
+        ltv_pct = round((loan / car_price) * 100, 2) if car_price > 0 else 0
+        dti_pct = round((monthly / income) * 100, 2) if income > 0 and monthly else None
+        return {
+            "approved": approved,
+            "client_id": cib.get("client_id", client_id),
+            "product_id": "credit-auto",
+            "rate_pct": rate_pct,
+            "base_rate_pct": base_rate_pct,
+            "loan_amount_rub": loan,
+            "monthly_payment_rub": monthly,
+            "total_to_pay_rub": total,
+            "ltv_pct": ltv_pct,
+            "dti_pct": dti_pct,
+            "term_years": term_years,
+            "term_months": term_months,
+            "reasons": list(cib.get("reasons", []) or []) + extra_reasons,
+            "explanation": cib.get("explanation", ""),
+            "customer_name": cib.get("customer_name", ""),
+            "car_price_rub": car_price,
+            "down_payment_rub": down_payment,
+            "source": "cib",
+        }
+
+    # CIB unreachable — local fallback
     customer = await backend_get(f"/clients/{client_id}")
     q = _local_quote(customer, car_price, down_payment, term_years)
     q["client_id"] = client_id

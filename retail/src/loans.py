@@ -23,7 +23,7 @@ async def credit_apply(payload: dict) -> dict:
         {"client_id": client_id, "product_id": product_id},
     )
     if cib:
-        return {
+        result = {
             "status": "approved" if cib.get("approved") else "declined",
             "client_id": cib.get("client_id", client_id),
             "product_id": cib.get("product_id", product_id),
@@ -33,6 +33,11 @@ async def credit_apply(payload: dict) -> dict:
             "customer_name": cib.get("customer_name", ""),
             "source": "cib",
         }
+        if cib.get("rate_pct") is not None:
+            result["rate_pct"] = cib["rate_pct"]
+        if cib.get("base_rate_pct") is not None:
+            result["base_rate_pct"] = cib["base_rate_pct"]
+        return result
 
     # Fallback: simple heuristic when CIB is not reachable
     customer = await backend_get(f"/clients/{client_id}")
@@ -53,3 +58,32 @@ async def credit_apply(payload: dict) -> dict:
         ),
         "source": "retail-heuristic",
     }
+
+
+@router.post("/api/credit/refinance")
+async def credit_refinance(payload: dict) -> dict:
+    """Refinance the customer's existing debt at a lower risk-based rate.
+
+    Proxies CIB POST /credit/refinance, which returns the new rate, monthly
+    saving and total saving.
+    """
+    client_id = payload.get("client_id")
+    current_balance = payload.get("current_balance_rub", 0)
+    current_rate = payload.get("current_rate_pct", 0)
+    term_months = payload.get("term_months", 36)
+    if not client_id or current_balance <= 0 or current_rate <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="client_id, positive current_balance_rub and current_rate_pct required",
+        )
+
+    cib = await try_post(CIB_URL, "/credit/refinance", {
+        "client_id": client_id,
+        "current_balance_rub": current_balance,
+        "current_rate_pct": current_rate,
+        "term_months": term_months,
+    })
+    if cib:
+        return {**cib, "source": "cib"}
+
+    raise HTTPException(status_code=502, detail="refinance unavailable")

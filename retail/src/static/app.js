@@ -154,6 +154,8 @@
         icon: ICON('<path d="M5 13l1.6-4.5C6.8 8 7.3 7.5 8 7.5h8c.7 0 1.2.5 1.4 1L19 13"/><path d="M3.8 13h16.4v4.5H3.8z"/><circle cx="7.5" cy="17.5" r="1.6"/><circle cx="16.5" cy="17.5" r="1.6"/>') },
       { key: "mortgage",   i18n: "mortgage_tab",
         icon: ICON('<path d="M3 11 12 4l9 7"/><path d="M5 10.5V20h5v-5h4v5h5v-9.5"/><circle cx="14.5" cy="13" r="1"/>') },
+      { key: "refinance",  i18n: "refinance_tab",
+        icon: ICON('<path d="M4 12a8 8 0 0 1 14.3-4.8"/><path d="M20 12a8 8 0 0 1-14.3 4.8"/><path d="M18.3 7.2 14.5 7.2 18.3 3.5z"/><path d="M5.7 16.8 9.5 16.8 5.7 20.5z"/>') },
       { key: "invite",     i18n: "invite_tab",
         icon: ICON('<circle cx="8.5" cy="9" r="3"/><path d="M3 19.5c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/><circle cx="17" cy="8" r="2.2"/><path d="M14.6 13.6c.7-.4 1.5-.6 2.4-.6 1.9 0 3.3 1 4 3"/>') },
     ];
@@ -357,6 +359,24 @@
         invite_err_used:  "Вы уже использовали код",
         invite_err_not_allowed: "Использование кода не разрешено",
         total_bonus:      "Заработано на приглашениях",
+        refinance_tab:    "Рефинанс",
+        loading_refinance: "Загрузка рефинансирования...",
+        refinance_title:  "Рефинансирование",
+        refinance_intro:  "Переведите свой долг к нам и сэкономьте на ежемесячном платеже.",
+        current_balance:  "Текущий остаток долга, ₽",
+        current_rate:     "Текущая ставка, %",
+        refinance_term:   "Срок, месяцев",
+        refinance_btn:    "Рассчитать экономию",
+        fill_refinance:   "Укажите остаток долга и текущую ставку",
+        refinance_approved: "Рефинансирование одобрено",
+        refinance_declined: "Рефинансирование отклонено",
+        new_rate:         "Новая ставка",
+        old_payment:      "Текущий платёж",
+        new_payment:      "Новый платёж",
+        monthly_saving:   "Экономия в месяц",
+        total_saving:     "Экономия за весь срок",
+        not_beneficial:   "Текущая ставка уже ниже — рефинансирование невыгодно",
+        pre_approved:     "Предодобрено",
         investor_profile_label: "Инвестиционный профиль",
         not_suitable:     "Не подходит вашему профилю",
         min_investment:   "Минимум",
@@ -579,6 +599,24 @@
         invite_err_used:  "You've already used a code",
         invite_err_not_allowed: "Code use is not allowed",
         total_bonus:      "Earned from referrals",
+        refinance_tab:    "Refinance",
+        loading_refinance: "Loading refinance...",
+        refinance_title:  "Refinancing",
+        refinance_intro:  "Move your existing debt to us and save on your monthly payment.",
+        current_balance:  "Current debt balance, ₽",
+        current_rate:     "Current rate, %",
+        refinance_term:   "Term, months",
+        refinance_btn:    "Calculate savings",
+        fill_refinance:   "Enter your current balance and rate",
+        refinance_approved: "Refinancing approved",
+        refinance_declined: "Refinancing declined",
+        new_rate:         "New rate",
+        old_payment:      "Current payment",
+        new_payment:      "New payment",
+        monthly_saving:   "Monthly saving",
+        total_saving:     "Total saving",
+        not_beneficial:   "Your current rate is already lower — refinancing won't help",
+        pre_approved:     "Pre-approved",
         investor_profile_label: "Investor profile",
         not_suitable:     "Not suitable for your profile",
         min_investment:   "Minimum",
@@ -686,6 +724,7 @@
         if (opt && btn.dataset.tab === "brokerage") loadBrokerage(opt.value);
         if (opt && btn.dataset.tab === "mortgage") loadMortgage(opt.value);
         if (opt && btn.dataset.tab === "carloan") loadCarLoan(opt.value);
+        if (opt && btn.dataset.tab === "refinance") loadRefinance(opt.value);
         if (opt && btn.dataset.tab === "invite") loadInvite(opt.value);
       });
     });
@@ -878,6 +917,7 @@
       "card-debit-cashback": "card",
       "mortgage": "mortgage",
       "consumer_credit": "loans", "credit-consumer": "loans", "loan": "loans",
+      "credit-auto": "carloan", "credit-refinance": "refinance", "refinance": "refinance",
       "investments": "invest", "investment": "invest",
       "cashback_redeem": "card",
     };
@@ -901,12 +941,30 @@
 
     function renderOffers(data) {
       const all = (data.offers || []).filter(o => offerCtaTab(o));
-      const top = all.slice(0, 3);
+      const top = all.slice(0, 5);
       if (!top.length) { offersContainer.innerHTML = ""; return; }
-      offersContainer.innerHTML = `
-        <div class="section-title">${t("for_you")}</div>
-        <div class="offers-strip">
-          ${top.map((o, i) => {
+
+      const preApproved = top.filter(o => o.cib && o.cib.pre_approved);
+      const regular = top.filter(o => !(o.cib && o.cib.pre_approved));
+
+      let bannerHtml = "";
+      if (preApproved.length) {
+        bannerHtml = `<div class="pre-approved-banners">` +
+          preApproved.map((o, i) => {
+            const pa = o.cib.pre_approved;
+            const headline = pa.headline || o.title || "";
+            return `<button class="pre-approved-banner" data-pa-idx="${i}">
+              <div class="pab-badge">${t("pre_approved")}</div>
+              <div class="pab-headline">${headline}</div>
+              <div class="pab-cta">${t("offer_cta")} →</div>
+            </button>`;
+          }).join("") + `</div>`;
+      }
+
+      let regularHtml = "";
+      if (regular.length) {
+        regularHtml = `<div class="offers-strip">` +
+          regular.slice(0, 3).map((o, i) => {
             const cibName = (o.cib && o.cib.name) || "";
             const title = o.title || cibName || o.product;
             const reason = o.reason || "";
@@ -919,11 +977,23 @@
               ${badge ? `<div class="of-badge">${badge}</div>` : ""}
               <div class="of-cta">${t("offer_cta")} →</div>
             </button>`;
-          }).join("")}
-        </div>`;
+          }).join("") + `</div>`;
+      }
+
+      offersContainer.innerHTML = `
+        <div class="section-title">${t("for_you")}</div>
+        ${bannerHtml}
+        ${regularHtml}`;
+
+      offersContainer.querySelectorAll(".pre-approved-banner").forEach((el, i) => {
+        el.addEventListener("click", () => {
+          const tab = offerCtaTab(preApproved[i]);
+          if (tab) switchTab(tab);
+        });
+      });
       offersContainer.querySelectorAll(".offer-card").forEach((el, i) => {
         el.addEventListener("click", () => {
-          const tab = offerCtaTab(top[i]);
+          const tab = offerCtaTab(regular[i]);
           if (tab) switchTab(tab);
         });
       });
@@ -1799,6 +1869,99 @@
       });
     }
 
+    // ---- Refinancing ----
+    const refinanceContainer = document.getElementById("refinance-container");
+
+    function loadRefinance(clientId) {
+      renderRefinanceForm(clientId);
+    }
+
+    function renderRefinanceForm(clientId) {
+      refinanceContainer.innerHTML = `
+        <div class="section-title">${t("refinance_title")}</div>
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">${t("refinance_intro")}</div>
+
+        <form id="refinance-form" autocomplete="off">
+          <div class="form-row">
+            <label>${t("current_balance")}</label>
+            <input name="balance" type="number" min="1000" step="1000" placeholder="500 000" />
+          </div>
+          <div class="form-row">
+            <label>${t("current_rate")}</label>
+            <input name="rate" type="number" min="0.1" step="0.1" placeholder="22.5" />
+          </div>
+          <div class="form-row">
+            <label>${t("refinance_term")}</label>
+            <select name="term">
+              ${[12,18,24,36,48,60].map(m =>
+                `<option value="${m}"${m === 36 ? " selected" : ""}>${m} ${t("months")}</option>`).join("")}
+            </select>
+          </div>
+          <button class="btn primary" type="submit">${t("refinance_btn")}</button>
+        </form>
+        <div id="refinance-result"></div>
+      `;
+
+      const form = document.getElementById("refinance-form");
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const resBox = document.getElementById("refinance-result");
+        resBox.innerHTML = "";
+        const fd = new FormData(ev.target);
+        const balance = +fd.get("balance");
+        const rate = +fd.get("rate");
+        const term = +fd.get("term");
+        if (!balance || balance <= 0 || !rate || rate <= 0) {
+          resBox.innerHTML = `<div class="alert error">${t("fill_refinance")}</div>`;
+          return;
+        }
+        try {
+          const opt = sel.selectedOptions[0];
+          const r = await fetch("/api/credit/refinance", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              client_id: opt.value,
+              current_balance_rub: balance,
+              current_rate_pct: rate,
+              term_months: term,
+            }),
+          });
+          const res = await r.json();
+          if (r.ok && res.approved) {
+            if (!res.beneficial) {
+              resBox.innerHTML = `<div class="alert info">${t("not_beneficial")}</div>`;
+              return;
+            }
+            resBox.innerHTML = `
+              <div class="mortgage-approved">
+                <div class="ma-status">${t("refinance_approved")}</div>
+                <div class="ma-pay-label">${t("new_payment")}</div>
+                <div class="ma-pay-value">${fmt.format(Math.round(res.new_monthly_payment_rub))} ₽</div>
+                <div class="ma-pay-sub">${res.new_rate_pct}% · ${res.term_months} ${t("months")}</div>
+                <div class="ma-details">
+                  <div><span>${t("old_payment")}</span><b>${fmt.format(Math.round(res.old_monthly_payment_rub))} ₽</b></div>
+                  <div><span>${t("monthly_saving")}</span><b style="color:var(--ok)">${fmt.format(Math.round(res.monthly_saving_rub))} ₽</b></div>
+                  <div><span>${t("total_saving")}</span><b style="color:var(--ok)">${fmt.format(Math.round(res.total_saving_rub))} ₽</b></div>
+                </div>
+              </div>`;
+          } else if (r.ok && !res.approved) {
+            const reasons = (res.reasons || []).map(x => `<li>${x}</li>`).join("");
+            resBox.innerHTML = `<div class="decision-box declined">
+              <div class="decision-icon">&#10007;</div>
+              <div class="decision-status">${t("refinance_declined")}</div>
+              <div class="decision-detail">
+                ${reasons ? `<ul style="margin:8px 0 0; padding-left:18px; text-align:left">${reasons}</ul>` : ""}
+              </div>
+            </div>`;
+          } else {
+            resBox.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+          }
+        } catch (e) {
+          resBox.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+        }
+      });
+    }
+
     // ---- Brokerage ----
     let brokerageData = null;
     let selectedSecId = null;
@@ -2266,6 +2429,11 @@
           let detail = isApproved
             ? `${t("approved_detail")}: ${fmt.format(d.max_amount_rub || amount)} ₽`
             : `${t("declined_detail")}`;
+          if (isApproved && d.rate_pct != null) {
+            detail += `<br/>${t("rate_label")}: <b>${d.rate_pct}%</b>`;
+            if (d.base_rate_pct != null && d.base_rate_pct !== d.rate_pct)
+              detail += ` <span style="font-size:12px;color:var(--muted)">(${d.base_rate_pct}% base)</span>`;
+          }
           if (d.reason) detail += `<br/>${t("reason_label")}: ${d.reason}`;
           loanResult.innerHTML = `<div class="decision-box ${cls}">
             <div class="decision-icon">${icon}</div>
