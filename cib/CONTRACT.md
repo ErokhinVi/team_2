@@ -74,7 +74,7 @@ Decision audit trail for compliance review. Every credit decision (loan, mortgag
 
 Car loan decision (loan secured by the vehicle). Request: `{ "client_id", "car_price_rub", "down_payment_rub", "term_years" (default 5), "existing_monthly_debt_rub" (optional) }`. Same response shape as `/mortgage/decide`: `{approved, loan_amount_rub, down_payment_pct, ltv_pct, rate_pct (risk-based, base 13.9%), effective_apr_pct, term_years, monthly_payment_rub, total_repayment_rub, total_cost_of_credit_rub, dsti_pct, reasons, decision_id, recorded, explanation, customer_name}`.
 
-Declined for: down payment below 10%, overdue history, risk > 0.55, income below 30,000, or total debt payments (incl. existing debt) above 50% of income. Records `auto_credit` on the customer profile on approval.
+Declined for: down payment below 10%, overdue history, risk > 0.55, income below 30,000, or total debt payments (incl. existing debt) above 50% of income. Pass `"record": true` to book the loan on the customer profile on approval; by default it does **not** record (so the same endpoint is safe to use for a preview quote).
 
 ### POST /credit/secured-decide
 
@@ -144,7 +144,9 @@ Checks the down payment (min 20%), no overdue history, risk score ≤ 0.55, inco
 }
 ```
 
-`approved: false` with `reasons` if any rule fails. HTTP 400 on invalid price/down payment. On approval the mortgage is recorded on the customer's profile via backend `POST /clients/{id}/products` (response includes `recorded`, best-effort).
+`approved: false` with `reasons` if any rule fails. HTTP 400 on invalid price/down payment.
+
+Three variants share this request/response shape: **`POST /mortgage/quote`** — no-commitment preview, records nothing; **`POST /mortgage/apply`** — records the mortgage on the profile on approval (`recorded` in the response); **`POST /mortgage/decide`** — alias of apply, kept for compatibility.
 
 ### POST /investment/suitability
 

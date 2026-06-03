@@ -359,6 +359,9 @@ class CarLoanRequest(BaseModel):
     down_payment_rub: float
     term_years: int = 5
     existing_monthly_debt_rub: float | None = None
+    # Retail reuses this endpoint for both a preview quote and the real apply.
+    # Only record the loan when explicitly committing, so a quote can't book it.
+    record: bool = False
 
 
 class RefinanceRequest(BaseModel):
@@ -532,8 +535,7 @@ async def credit_decide(req: DecideRequest) -> dict:
     return result
 
 
-@app.post("/mortgage/decide")
-async def mortgage_decide(req: MortgageRequest) -> dict:
+async def _mortgage_eval(req: MortgageRequest, do_record: bool, endpoint_label: str) -> dict:
     product = next((p for p in PRODUCTS if p["id"] == "mortgage"), None)
     if product is None:
         raise HTTPException(status_code=500, detail="Mortgage product missing")
@@ -584,7 +586,7 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
     # On approval, record the mortgage on the customer's profile so it sticks
     # and counts. Best-effort — a transient backend hiccup won't block the decision.
     recorded = False
-    if approved:
+    if approved and do_record:
         recorded = await _record_product(req.client_id, "mortgage", {
             "loan_amount_rub": round(loan_rub, 2),
             "rate_pct": product["rate_pct"],
@@ -606,7 +608,7 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
                        else "We are unable to approve this mortgage at this time.")
 
     eff_apr = ((1 + product["rate_pct"] / 100 / 12) ** 12 - 1) * 100
-    decision_id = _audit("/mortgage/decide", req.client_id, {
+    decision_id = _audit(endpoint_label, req.client_id, {
         "product_id": "mortgage",
         "property_price_rub": req.property_price_rub,
         "loan_amount_rub": round(loan_rub, 2),
@@ -642,6 +644,24 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
         "explanation_is_advisory": True,
         "customer_name": customer.get("name"),
     }
+
+
+@app.post("/mortgage/quote")
+async def mortgage_quote(req: MortgageRequest) -> dict:
+    """No-commitment mortgage preview — does NOT record anything."""
+    return await _mortgage_eval(req, do_record=False, endpoint_label="/mortgage/quote")
+
+
+@app.post("/mortgage/apply")
+async def mortgage_apply(req: MortgageRequest) -> dict:
+    """Mortgage application — records the mortgage on the profile on approval."""
+    return await _mortgage_eval(req, do_record=True, endpoint_label="/mortgage/apply")
+
+
+@app.post("/mortgage/decide")
+async def mortgage_decide(req: MortgageRequest) -> dict:
+    """Alias of /mortgage/apply (records on approval) — kept for compatibility."""
+    return await _mortgage_eval(req, do_record=True, endpoint_label="/mortgage/decide")
 
 
 def _monthly_payment(principal: float, annual_rate_pct: float, months: int) -> float:
@@ -705,7 +725,7 @@ async def car_loan_decide(req: CarLoanRequest) -> dict:
     approved = not reasons
 
     recorded = False
-    if approved:
+    if approved and req.record:
         recorded = await _record_product(req.client_id, "auto_credit", {
             "loan_amount_rub": round(loan_rub, 2), "rate_pct": rate,
             "term_years": term_years, "monthly_payment_rub": monthly_payment,
