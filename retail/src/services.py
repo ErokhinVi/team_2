@@ -1,5 +1,9 @@
 """Shared configuration and HTTP-helper layer for the retail block.
 
+Includes a tiny in-memory TTL cache for the CIB product catalogue, which
+several pane endpoints fetch on every request and which changes rarely.
+
+
 The retail block holds no data of its own — it talks to two neighbours:
   * backend — the data core (clients, transactions, balances, transfers)
   * cib     — business logic (product catalogue + decisions)
@@ -12,7 +16,9 @@ httpx boilerplate. Two flavours:
 """
 from __future__ import annotations
 
+import asyncio
 import os
+import time
 from pathlib import Path
 
 import httpx
@@ -81,3 +87,30 @@ async def backend_get(path: str, params: dict | None = None) -> dict:
 
 async def cib_get(path: str, params: dict | None = None) -> dict:
     return await proxy_get(CIB_URL, path, "cib", params)
+
+
+# ---- Cached CIB product catalogue ----
+# Five different pane endpoints fetch /products on every request; the catalogue
+# changes rarely. Hold it for 60 seconds so we make at most one upstream call
+# per minute regardless of how many tabs the customer flips through.
+_products_cache: dict = {"data": None, "expires": 0.0}
+_products_lock = asyncio.Lock()
+PRODUCTS_TTL_SECONDS = 60
+
+
+async def cached_cib_products() -> dict:
+    """Return cib /products, served from a 60-second in-memory cache."""
+    now = time.monotonic()
+    cached = _products_cache.get("data")
+    if cached is not None and _products_cache.get("expires", 0) > now:
+        return cached
+    async with _products_lock:
+        # Re-check after acquiring the lock — another coroutine may have filled it.
+        now = time.monotonic()
+        cached = _products_cache.get("data")
+        if cached is not None and _products_cache.get("expires", 0) > now:
+            return cached
+        data = await try_get(CIB_URL, "/products") or {}
+        _products_cache["data"] = data
+        _products_cache["expires"] = now + PRODUCTS_TTL_SECONDS
+        return data

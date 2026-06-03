@@ -165,7 +165,11 @@
       invite: "invite_tab",
     };
 
+    // Per-pane loaders, fired only when a pane becomes visible (lazy loading).
+    // The home/transfers pane bundles tx + offers + loyalty so they refresh on
+    // profile-pick without triggering every other tab's network cascade.
     const PANE_LOADERS = {
+      transfers:  (cid) => { loadTx(cid); loadOffers(cid); loadLoyalty(cid); },
       card:       (cid) => loadCardInfo(cid),
       creditcard: (cid) => loadCreditCard(cid),
       savings:    (cid) => loadSavings(cid),
@@ -749,18 +753,15 @@
         el.placeholder = t(el.dataset.i18nPlaceholder);
       });
       document.getElementById("lang-toggle").textContent = t("toggle_label");
+      // Lazy: only re-render the active pane on language switch.
       const opt = sel.selectedOptions[0];
       if (opt) {
-        loadTx(opt.value);
-        loadCardInfo(opt.value);
-        loadCreditCard(opt.value);
-        loadSavings(opt.value);
-        loadInvest(opt.value);
-        loadBrokerage(opt.value);
-        loadMortgage(opt.value);
-        loadOffers(opt.value);
-        loadLoyalty(opt.value);
-        loadInvite(opt.value);
+        const activeBtn = document.querySelector(".tabs .tab.active");
+        const groupKey = activeBtn ? activeBtn.dataset.group : "home";
+        const group = TAB_GROUPS.find(g => g.key === groupKey) || TAB_GROUPS[0];
+        const activePane = lastPaneOf[groupKey] || group.panes[0];
+        const loader = PANE_LOADERS[activePane];
+        if (loader) loader(opt.value);
       }
       if (productsData.length) renderProducts();
     }
@@ -908,16 +909,18 @@
         return;
       }
 
-      loadTx(opt.value);
-      loadCardInfo(opt.value);
-      loadCreditCard(opt.value);
-      loadSavings(opt.value);
-      loadInvest(opt.value);
-      loadBrokerage(opt.value);
-      loadMortgage(opt.value);
-      loadOffers(opt.value);
-      loadInvite(opt.value);
-      loadLoyalty(opt.value);
+      // Lazy refresh: only reload the pane the customer is currently looking
+      // at. Other tabs will fetch their data the first time they're opened
+      // (PANE_LOADERS hook in applyNavState).
+      const activeBtn = document.querySelector(".tabs .tab.active");
+      const groupKey = activeBtn ? activeBtn.dataset.group : "home";
+      const group = TAB_GROUPS.find(g => g.key === groupKey) || TAB_GROUPS[0];
+      const activePane = lastPaneOf[groupKey] || group.panes[0];
+      const loader = PANE_LOADERS[activePane];
+      if (loader) loader(opt.value);
+
+      // Reset any stale result from the loans flow (only visible if user lands
+      // on loans next; safe to do unconditionally).
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
@@ -1096,7 +1099,7 @@
       `;
     }
 
-    // ---- Next-best-offers (home tab) ----
+    // ---- Smart Engine: self-improving offers (home tab) ----
     // Map an offer's product/kind to a destination tab. Anything that doesn't
     // match a real tab is skipped (e.g. backend-handled premium_upgrade).
     const OFFER_TAB = {
@@ -1109,18 +1112,35 @@
       "consumer_credit": "loans", "credit-consumer": "loans", "loan": "loans",
       "credit-auto": "carloan", "credit-refinance": "refinance", "refinance": "refinance",
       "investments": "invest", "investment": "invest",
+      "inv-ofz": "invest", "inv-corp-bond": "invest", "inv-etf-index": "invest",
+      "inv-equity-fund": "invest", "inv-bluechip": "invest", "inv-growth": "invest",
+      "inv-gold": "invest",
       "cashback_redeem": "card",
     };
 
     function offerCtaTab(offer) {
-      const cibKind = offer.cib && offer.cib.kind;
-      const productId = (offer.cib && offer.cib.product_id) || offer.product;
+      const cibKind = (offer.cib && offer.cib.kind) || offer.kind;
+      const productId = (offer.cib && offer.cib.product_id) || offer.product_id || offer.product;
       return OFFER_TAB[productId] || OFFER_TAB[cibKind] || null;
+    }
+
+    // Track a click with the smart engine (fire-and-forget learning signal)
+    function trackOfferClick(offer) {
+      const pid = offer.promo_id || offer.product_id ||
+                  (offer.cib && offer.cib.product_id) || offer.product || "";
+      const cid = currentClient || "";
+      fetch("/api/smart-engine/click", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ product_id: pid, client_id: cid }),
+      }).catch(() => {});
     }
 
     async function loadOffers(clientId) {
       try {
-        const r = await fetch(`/api/offers/${clientId}`);
+        // Smart engine merges promos + CIB + backend, re-ranks with
+        // conversion data — the self-improving feedback loop
+        const r = await fetch(`/api/smart-offers/${clientId}`);
         if (!r.ok) throw new Error("failed");
         const data = await r.json();
         renderOffers(data);
@@ -1130,12 +1150,32 @@
     }
 
     function renderOffers(data) {
-      const all = (data.offers || []).filter(o => offerCtaTab(o));
-      const top = all.slice(0, 5);
+      const isNewcomer = data.is_newcomer;
+      const all = (data.offers || []).filter(o => offerCtaTab(o) || o.type === "newcomer_promo");
+      const top = all.slice(0, 6);
       if (!top.length) { offersContainer.innerHTML = ""; return; }
 
-      const preApproved = top.filter(o => o.cib && o.cib.pre_approved);
-      const regular = top.filter(o => !(o.cib && o.cib.pre_approved));
+      // Separate promos, pre-approved, and regular offers
+      const promos = top.filter(o => o.type === "newcomer_promo");
+      const preApproved = top.filter(o => o.cib && o.cib.pre_approved && o.type !== "newcomer_promo");
+      const regular = top.filter(o => !(o.cib && o.cib.pre_approved) && o.type !== "newcomer_promo");
+
+      // Promo banners for newcomers — gradient cards
+      let promoHtml = "";
+      if (promos.length) {
+        promoHtml = `<div class="promo-banners">` +
+          promos.map((o, i) => {
+            const headline = o.headline || o.title || "";
+            const reason = o.reason || "";
+            const badge = o.badge || "";
+            return `<button class="promo-banner" data-promo-idx="${i}">
+              <div class="promo-badge">${badge}</div>
+              <div class="promo-headline">${headline}</div>
+              <div class="promo-reason">${reason}</div>
+              <div class="promo-cta">${t("offer_cta")} →</div>
+            </button>`;
+          }).join("") + `</div>`;
+      }
 
       let bannerHtml = "";
       if (preApproved.length) {
@@ -1170,19 +1210,35 @@
           }).join("") + `</div>`;
       }
 
+      const sectionTitle = isNewcomer
+        ? `<div class="section-title smart-title">✨ Welcome — special offers just for you</div>`
+        : `<div class="section-title">${t("for_you")}</div>`;
+
       offersContainer.innerHTML = `
-        <div class="section-title">${t("for_you")}</div>
+        ${sectionTitle}
+        ${promoHtml}
         ${bannerHtml}
         ${regularHtml}`;
 
+      // Promo click handlers — each click is a learning signal
+      offersContainer.querySelectorAll(".promo-banner").forEach((el, i) => {
+        el.addEventListener("click", () => {
+          trackOfferClick(promos[i]);
+          const tab = offerCtaTab(promos[i]);
+          if (tab) switchTab(tab);
+        });
+      });
+
       offersContainer.querySelectorAll(".pre-approved-banner").forEach((el, i) => {
         el.addEventListener("click", () => {
+          trackOfferClick(preApproved[i]);
           const tab = offerCtaTab(preApproved[i]);
           if (tab) switchTab(tab);
         });
       });
       offersContainer.querySelectorAll(".offer-card").forEach((el, i) => {
         el.addEventListener("click", () => {
+          trackOfferClick(regular[i]);
           const tab = offerCtaTab(regular[i]);
           if (tab) switchTab(tab);
         });

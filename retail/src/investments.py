@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post
+from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post, cached_cib_products
 
 router = APIRouter()
 
@@ -51,7 +51,7 @@ async def investments_info(client_id: str) -> dict:
     """Portfolio overview: CIB instruments + suitability profile + backend holdings."""
     customer = await backend_get(f"/clients/{client_id}")
 
-    products = await try_get(CIB_URL, "/products") or {}
+    products = await cached_cib_products()
     instruments = [p for p in (products.get("items") or []) if _is_investment_product(p)]
     if not instruments:
         instruments = list(FALLBACK_INSTRUMENTS)
@@ -214,7 +214,7 @@ async def invest(payload: dict) -> dict:
     # Step 3b — simulated confirmation only when both neighbours are unreachable
     expected_return = 10.0
     name = instrument_id
-    products = await try_get(CIB_URL, "/products") or {}
+    products = await cached_cib_products()
     pool = (products.get("items") or []) + FALLBACK_INSTRUMENTS
     for p in pool:
         if p.get("id") == instrument_id:

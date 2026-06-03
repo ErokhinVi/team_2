@@ -13,7 +13,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from src.investments import FALLBACK_INSTRUMENTS, _is_investment_product, _risk_band
-from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post
+from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post, cached_cib_products
 
 router = APIRouter()
 
@@ -50,7 +50,7 @@ async def brokerage_info(client_id: str) -> dict:
         inst_meta[sym] = it
 
     # Tradable securities (CIB catalogue): merge with backend prices where possible
-    products = await try_get(CIB_URL, "/products") or {}
+    products = await cached_cib_products()
     raw = [p for p in (products.get("items") or []) if _is_investment_product(p)]
     if not raw:
         raw = list(FALLBACK_INSTRUMENTS)

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post
+from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post, cached_cib_products
 
 router = APIRouter()
 
@@ -178,7 +178,7 @@ async def car_loan_info(client_id: str) -> dict:
 
     # Pull bank's car-loan rate from cib catalogue if present
     rate_pct = DEFAULT_RATE_PCT
-    cat = await try_get(CIB_URL, "/products") or {}
+    cat = await cached_cib_products()
     for p in cat.get("items", []):
         pid = str(p.get("id", "")).lower()
         kind = str(p.get("kind", "")).lower()

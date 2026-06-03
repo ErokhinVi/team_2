@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post
+from src.smart_engine import _stats as engine_stats, cached_cib_products
 
 router = APIRouter()
 
@@ -13,7 +14,7 @@ async def deposits_info(client_id: str) -> dict:
     """Savings overview: deposit products from CIB + existing deposits from backend."""
     customer = await backend_get(f"/clients/{client_id}")
 
-    products = await try_get(CIB_URL, "/products") or {}
+    products = await cached_cib_products()
     deposit_products = [
         p for p in (products.get("items") or [])
         if p.get("kind") in ("deposit", "savings")
@@ -68,6 +69,11 @@ async def deposit_open(payload: dict) -> dict:
             detail="client_id, product_id and positive amount_rub required",
         )
 
+    # Smart engine: record conversion (self-improving feedback loop)
+    import time
+    engine_stats[product_id]["conversions"] += 1
+    engine_stats[product_id]["last_boost"] = time.time()
+
     cib = await try_post(
         CIB_URL, "/deposit/open",
         {"client_id": client_id, "product_id": product_id, "amount_rub": amount},
@@ -96,7 +102,7 @@ async def deposit_open(payload: dict) -> dict:
 
     # Simulated fallback — derive rate from the CIB catalogue if possible
     rate_pct = 14.0
-    products = await try_get(CIB_URL, "/products") or {}
+    products = await cached_cib_products()
     for p in products.get("items", []):
         if p.get("id") == product_id and p.get("rate_pct"):
             rate_pct = p["rate_pct"]

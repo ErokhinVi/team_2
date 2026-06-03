@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from src import (brokerage, cards, carloans, core, insurance, investments,
                  loans, locks, loyalty, mortgages, offers, referrals, savings,
-                 transfers)
+                 smart_engine, transfers)
 from src.services import BACKEND_URL, CIB_URL, COMMIT, STATIC_DIR, TEAM_NAME
 
 app = FastAPI(title="retail — мобильный банк", version="2.1.0")
@@ -152,5 +152,6 @@ for _router in (
     referrals.router,
     loyalty.router,
     insurance.router,
+    smart_engine.router,
 ):
     app.include_router(_router)

@@ -182,6 +182,31 @@ new_monthly_payment_rub, monthly_saving_rub, total_saving_rub, reasons,
 customer_name, source}`. The UI shows the monthly saving and total saving
 to the customer, and flags when refinancing isn't beneficial.
 
+### GET /api/smart-offers/{client_id}
+Self-improving personalised offers. Merges three sources — newcomer promo
+offers (retail-owned), CIB next-best-offers, and backend recommendations —
+then re-ranks them using a conversion feedback loop: the engine tracks
+impressions, clicks, and completions, and boosts products that customers
+actually engage with. Newcomers (customers with fewer than 2 products) see
+special promo banners: welcome high-yield savings (20% for 3 months),
+newcomer fixed deposit (18% for 6 months), double-cashback card activation,
+and commission-free first investment. Returns `{client_id, customer_name,
+segment, is_newcomer, total, offers, engine, stats_snapshot}`.
+
+### POST /api/smart-engine/click
+Learning signal: records that a customer clicked on an offer. Accepts
+`{product_id, client_id}`. Fire-and-forget (called automatically by the UI).
+
+### POST /api/smart-engine/conversion
+Strongest learning signal: records that a customer completed an action
+(opened a deposit, activated a card, etc.). Accepts `{product_id, client_id}`.
+Called by action endpoints after success.
+
+### GET /api/smart-engine/stats
+Dashboard for the self-improving engine. Returns conversion funnel stats:
+impressions, clicks, conversions, click rates, and conversion rates per
+product. Shows how the engine is learning and which promos perform best.
+
 ## Кого я зову у соседей
 
 - backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /clients/{id}/deposits`, `POST /deposits` (fallback), `GET /cashback/{client_id}`, `POST /api/cashback/redeem`, `POST /clients/{id}/credit-cashback` (when shipped — payload `{amount_rub, source}`, used to pay out MGM referral bonus to both parties), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/recommendations` (fallback for offers)

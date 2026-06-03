@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post
+from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post, cached_cib_products
 
 router = APIRouter()
 
@@ -113,7 +113,7 @@ async def mortgage_info(client_id: str) -> dict:
 
     # Pull the bank's mortgage product (rate etc.) from CIB catalogue if present
     rate_pct = DEFAULT_RATE_PCT
-    products = await try_get(CIB_URL, "/products") or {}
+    products = await cached_cib_products()
     for p in products.get("items", []):
         if p.get("kind") == "mortgage" or str(p.get("id", "")).startswith("mortgage"):
             if p.get("rate_pct"):
