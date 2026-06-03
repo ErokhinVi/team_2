@@ -681,14 +681,27 @@ async def investment_order_plan(req: SuitabilityRequest) -> dict:
             )
         else:
             price = match["price_rub"]
-            qty = int(req.amount_rub // price)
-            if qty < 1:
-                note = f"amount {req.amount_rub} is below the price of one unit ({price})"
+            lot = product["lot_size"]
+            comm_pct = product["commission_pct"]
+            # Largest whole number of lots whose value + commission fits the amount.
+            qty = (int(req.amount_rub // price) // lot) * lot
+            while qty >= lot:
+                gross = qty * price
+                comm = max(gross * comm_pct / 100, MIN_COMMISSION_RUB)
+                if gross + comm <= req.amount_rub:
+                    break
+                qty -= lot
+            if qty < lot:
+                note = f"amount {req.amount_rub} is too small to cover one lot ({lot}) plus commission"
             else:
+                gross = round(qty * price, 2)
+                comm = round(max(gross * comm_pct / 100, MIN_COMMISSION_RUB), 2)
                 order.update({
                     "qty": qty,
                     "price_rub": price,
-                    "est_cost_rub": round(qty * price, 2),
+                    "gross_rub": gross,
+                    "commission_rub": comm,
+                    "total_cost_rub": round(gross + comm, 2),
                 })
                 executable = True
 
