@@ -71,7 +71,64 @@ PRODUCTS = [
     {"id": "deposit-12m", "kind": "deposit", "name": "Депозит 12 месяцев","rate_pct": 17.0, "term_months": 12, "early_withdrawal": False},
     {"id": "deposit-flex","kind": "deposit", "name": "Накопительный счёт","rate_pct": 9.5,  "term_months": None,"early_withdrawal": True},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
+    # Investment products. risk_level 1 (lowest) .. 5 (highest).
+    {"id": "inv-ofz",        "kind": "investment", "subtype": "bond",  "name": "Гособлигации (ОФЗ)",        "risk_level": 1, "expected_return_pct": 13.0, "min_investment_rub": 10_000},
+    {"id": "inv-corp-bond",  "kind": "investment", "subtype": "bond",  "name": "Фонд корпоративных облигаций", "risk_level": 2, "expected_return_pct": 16.0, "min_investment_rub": 10_000},
+    {"id": "inv-etf-index",  "kind": "investment", "subtype": "etf",   "name": "ETF на индекс Мосбиржи",    "risk_level": 3, "expected_return_pct": 18.0, "min_investment_rub": 5_000},
+    {"id": "inv-equity-fund","kind": "investment", "subtype": "fund",  "name": "Фонд акций",                 "risk_level": 3, "expected_return_pct": 19.0, "min_investment_rub": 5_000},
+    {"id": "inv-bluechip",   "kind": "investment", "subtype": "stock", "name": "Голубые фишки (акции)",      "risk_level": 4, "expected_return_pct": 22.0, "min_investment_rub": 30_000},
+    {"id": "inv-growth",     "kind": "investment", "subtype": "stock", "name": "Акции роста",                "risk_level": 5, "expected_return_pct": 28.0, "min_investment_rub": 50_000},
 ]
+
+# Human-readable investor risk profile names by max acceptable risk level.
+RISK_LEVEL_NAMES = {
+    1: "conservative",
+    2: "cautious",
+    3: "balanced",
+    4: "growth",
+    5: "aggressive",
+}
+
+
+def investor_profile(customer: dict) -> dict:
+    """Derive an investment suitability profile from a customer's circumstances.
+
+    Uses time horizon (age), capacity to absorb loss (income, balance) and
+    segment as a sophistication proxy. Deliberately NOT credit risk_score —
+    that measures repayment, not investment appetite. Returns the maximum
+    investment risk_level (1..5) the customer may be offered.
+    """
+    age = customer.get("age", 99)
+    income = customer.get("income_rub", 0)
+    balance = customer.get("balance_rub", 0)
+
+    points = 0
+    # Time horizon — younger investors can ride out volatility
+    if age < 35:
+        points += 2
+    elif age <= 55:
+        points += 1
+    # Capacity — a financial buffer means a loss won't be catastrophic
+    if balance >= 1_000_000:
+        points += 2
+    elif balance >= 200_000:
+        points += 1
+    if income >= 150_000:
+        points += 1
+
+    max_risk = max(1, min(5, points))
+
+    # Regulatory floor: a thin balance can't bear investment losses — protect.
+    if balance < 50_000:
+        max_risk = 1
+
+    return {
+        "profile": RISK_LEVEL_NAMES[max_risk],
+        "max_risk_level": max_risk,
+        "age": age,
+        "income_rub": income,
+        "balance_rub": balance,
+    }
 
 # Decision thresholds
 MAX_RISK_SCORE_STANDARD = 0.55   # for larger amounts (> 6x monthly income)
@@ -96,6 +153,16 @@ class DepositOpenRequest(BaseModel):
     client_id: str
     product_id: str
     amount_rub: float
+
+
+class SuitabilityRequest(BaseModel):
+    client_id: str
+    product_id: str
+    amount_rub: float | None = None
+
+
+class RecommendRequest(BaseModel):
+    client_id: str
 
 
 @app.get("/health")
@@ -351,6 +418,106 @@ async def deposit_open(req: DepositOpenRequest) -> dict:
         "matures_at": matures_at,
         "projected_interest_rub": interest_rub,
         "customer_name": customer.get("name"),
+    }
+
+
+async def _fetch_customer(client_id: str) -> dict:
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(f"{BACKEND_URL}/clients/{client_id}")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Backend unavailable")
+    return resp.json()
+
+
+@app.post("/investment/suitability")
+async def investment_suitability(req: SuitabilityRequest) -> dict:
+    product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product["kind"] != "investment":
+        raise HTTPException(status_code=400, detail="Product is not an investment")
+
+    customer = await _fetch_customer(req.client_id)
+    prof = investor_profile(customer)
+
+    reasons: list[str] = []
+    suitable = True
+
+    if product["risk_level"] > prof["max_risk_level"]:
+        suitable = False
+        reasons.append(
+            f"product risk level {product['risk_level']} exceeds the customer's "
+            f"suitable level {prof['max_risk_level']} ({prof['profile']} profile)"
+        )
+
+    if prof["balance_rub"] < product["min_investment_rub"]:
+        suitable = False
+        reasons.append(
+            f"balance below product minimum ({prof['balance_rub']} < {product['min_investment_rub']})"
+        )
+
+    if req.amount_rub is not None:
+        if req.amount_rub < product["min_investment_rub"]:
+            suitable = False
+            reasons.append(
+                f"amount below product minimum ({req.amount_rub} < {product['min_investment_rub']})"
+            )
+        # Concentration guard: don't let a customer put more than 50% of their
+        # balance into a single higher-risk (level >= 4) investment.
+        if product["risk_level"] >= 4 and req.amount_rub > prof["balance_rub"] * 0.5:
+            suitable = False
+            reasons.append("amount exceeds 50% of balance for a high-risk product (concentration limit)")
+
+    # Suggest suitable alternatives if this product doesn't fit
+    alternatives = [
+        {"id": p["id"], "name": p["name"], "risk_level": p["risk_level"],
+         "expected_return_pct": p["expected_return_pct"]}
+        for p in PRODUCTS
+        if p["kind"] == "investment"
+        and p["risk_level"] <= prof["max_risk_level"]
+        and prof["balance_rub"] >= p["min_investment_rub"]
+    ]
+    alternatives.sort(key=lambda p: p["expected_return_pct"], reverse=True)
+
+    return {
+        "client_id": req.client_id,
+        "product_id": req.product_id,
+        "product_name": product["name"],
+        "suitable": suitable,
+        "reasons": reasons,
+        "investor_profile": prof["profile"],
+        "max_risk_level": prof["max_risk_level"],
+        "product_risk_level": product["risk_level"],
+        "suitable_alternatives": [] if suitable else alternatives,
+        "customer_name": customer.get("name"),
+    }
+
+
+@app.post("/investment/recommend")
+async def investment_recommend(req: RecommendRequest) -> dict:
+    customer = await _fetch_customer(req.client_id)
+    prof = investor_profile(customer)
+
+    recommended = [
+        {"id": p["id"], "name": p["name"], "subtype": p["subtype"],
+         "risk_level": p["risk_level"], "expected_return_pct": p["expected_return_pct"],
+         "min_investment_rub": p["min_investment_rub"]}
+        for p in PRODUCTS
+        if p["kind"] == "investment"
+        and p["risk_level"] <= prof["max_risk_level"]
+        and prof["balance_rub"] >= p["min_investment_rub"]
+    ]
+    recommended.sort(key=lambda p: p["expected_return_pct"], reverse=True)
+
+    return {
+        "client_id": req.client_id,
+        "customer_name": customer.get("name"),
+        "investor_profile": prof["profile"],
+        "max_risk_level": prof["max_risk_level"],
+        "total": len(recommended),
+        "items": recommended,
     }
 
 

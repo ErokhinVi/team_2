@@ -21,6 +21,13 @@ Current products:
 - `deposit-12m` — 12-month term deposit, 17%, min 30,000 rubles
 - `deposit-flex` — Flexible savings account, 9.5%, withdraw anytime, min 1,000 rubles
 - `credit-consumer` — Consumer loan, 18.9%
+- Investments (each has `subtype`, `risk_level` 1–5, `expected_return_pct`, `min_investment_rub`):
+  - `inv-ofz` — Government bonds (OFZ), risk 1, ~13%
+  - `inv-corp-bond` — Corporate bond fund, risk 2, ~16%
+  - `inv-etf-index` — Moscow Exchange index ETF, risk 3, ~18%
+  - `inv-equity-fund` — Equity fund, risk 3, ~19%
+  - `inv-bluechip` — Blue-chip stocks, risk 4, ~22%
+  - `inv-growth` — Growth stocks, risk 5, ~28%
 
 ### GET /
 HTML с каталогом продуктов. Для человека, не для других блоков.
@@ -45,6 +52,31 @@ Returns:
 ```
 `approved` is `true` or `false`. `reasons` lists why a decision was declined (empty on approval).
 HTTP 404 if client or product is not found. HTTP 400 if product is not a credit product.
+
+### POST /investment/suitability
+
+Checks whether an investment product matches a customer's risk profile (regulatory suitability). Request body: `{ "client_id": "<string>", "product_id": "<string>", "amount_rub": <number, optional> }`
+
+The investor profile is derived from age, income and balance (NOT credit risk score). Profiles: conservative (max risk 1) → aggressive (max risk 5). A balance under 50,000 rubles is capped to conservative. If `amount_rub` is given, also enforces a concentration limit (max 50% of balance into a single risk-4+ product).
+
+```json
+{
+  "client_id": "c-01004",
+  "product_id": "inv-growth",
+  "product_name": "Акции роста",
+  "suitable": false,
+  "reasons": ["product risk level 5 exceeds the customer's suitable level 3 (balanced profile)"],
+  "investor_profile": "balanced",
+  "max_risk_level": 3,
+  "product_risk_level": 5,
+  "suitable_alternatives": [{ "id": "inv-equity-fund", "name": "Фонд акций", "risk_level": 3, "expected_return_pct": 19.0 }],
+  "customer_name": "Олег Кузнецов"
+}
+```
+
+### POST /investment/recommend
+
+Returns the list of investment products suitable for a customer, sorted by expected return. Request body: `{ "client_id": "<string>" }`. Returns `{client_id, customer_name, investor_profile, max_risk_level, total, items: [...]}`.
 
 ### POST /deposit/open
 
