@@ -76,6 +76,12 @@ _cards_by_client: dict[str, list[dict[str, Any]]] = {}
 _bank_revenue_by_source: dict[str, int] = {}
 _revenue_events: list[dict[str, Any]] = []
 
+# Реферальная программа: кто кого привёл. Бонус начисляется в кешбэк обеим
+# сторонам. Один приглашённый может быть привязан только к одному пригласившему.
+_referrals: list[dict[str, Any]] = []
+_referrals_by_inviter: dict[str, list[dict[str, Any]]] = {}
+_referred_invitees: set[str] = set()
+
 # Вклады: списываем деньги с баланса клиента и держим их во вкладе, пока он
 # не закрыт. Журнал вкладов + индексы по id и по клиенту.
 _deposits: list[dict[str, Any]] = []
@@ -363,6 +369,119 @@ async def api_cashback_redeem(payload: dict) -> dict:
         "new_balance_rub": c["balance_rub"],
         "cashback_balance_rub": c["cashback_balance_rub"],
         "tx_id": tx["id"], "ts": now_iso,
+    }
+
+
+def _credit_cashback(client: dict[str, Any], amount: int, reason: str,
+                     ts: str) -> dict[str, Any]:
+    """Начислить кешбэк клиенту (например, реферальный бонус). Возвращает
+    созданную транзакцию."""
+    client["cashback_balance_rub"] = int(client.get("cashback_balance_rub", 0)) + amount
+    tx = {
+        "id": f"t-{100000 + len(_transactions) + 1:08d}",
+        "client_id": client["id"], "type": "cashback_credit",
+        "amount_rub": 0, "ts": ts, "counterparty": reason, "cashback_rub": amount,
+    }
+    _transactions.append(tx)
+    return tx
+
+
+@app.post("/clients/{client_id}/credit-cashback")
+@app.post("/api/clients/{client_id}/credit-cashback")
+async def credit_cashback(client_id: str, payload: dict) -> dict:
+    """Начислить кешбэк на счёт клиента (общий примитив — им retail платит
+    реферальный бонус и т.п.). Принимает `{amount_rub, reason?}`. Возвращает
+    `{status, client_id, credited_rub, cashback_balance_rub, tx_id, ts}`.
+    `404`, если клиента нет; `400`, если сумма не положительная."""
+    c = _clients_by_id.get(client_id)
+    if not c:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    amount = int(payload.get("amount_rub") or 0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="укажи положительную сумму")
+    reason = (payload.get("reason") or "начисление кешбэка").strip()
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+    tx = _credit_cashback(c, amount, reason, now_iso)
+    return {
+        "status": "ok", "client_id": client_id, "credited_rub": amount,
+        "cashback_balance_rub": c["cashback_balance_rub"],
+        "tx_id": tx["id"], "ts": now_iso,
+    }
+
+
+# ---------- Реферальная программа ----------
+
+@app.post("/referrals")
+@app.post("/api/referrals")
+async def create_referral(payload: dict) -> dict:
+    """Записать, что один клиент привёл другого, и (если задан `bonus_rub`)
+    начислить бонус кешбэком обеим сторонам. Принимает
+    `{inviter_id, invitee_id, bonus_rub?}`. Возвращает
+    `{status, referral, inviter_cashback_rub, invitee_cashback_rub}`.
+    `404` — если кто-то из клиентов не найден; `400` — самоприглашение или
+    приглашённый уже привязан к другому пригласившему."""
+    inviter_id = (payload.get("inviter_id") or "").strip()
+    invitee_id = (payload.get("invitee_id") or "").strip()
+    inviter = _clients_by_id.get(inviter_id)
+    invitee = _clients_by_id.get(invitee_id)
+    if not inviter:
+        raise HTTPException(status_code=404, detail=f"пригласивший {inviter_id} не найден")
+    if not invitee:
+        raise HTTPException(status_code=404, detail=f"приглашённый {invitee_id} не найден")
+    if inviter_id == invitee_id:
+        raise HTTPException(status_code=400, detail="нельзя пригласить самого себя")
+    if invitee_id in _referred_invitees:
+        raise HTTPException(
+            status_code=400,
+            detail=f"клиент {invitee_id} уже привязан к пригласившему",
+        )
+    bonus = int(payload.get("bonus_rub") or 0)
+    if bonus < 0:
+        bonus = 0
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+
+    referral = {
+        "referral_id": f"ref-{len(_referrals) + 1:06d}",
+        "inviter_id": inviter_id,
+        "invitee_id": invitee_id,
+        "bonus_rub": bonus,
+        "status": "paid" if bonus > 0 else "pending",
+        "created_at": now_iso,
+    }
+    if bonus > 0:
+        _credit_cashback(inviter, bonus, f"реферальный бонус (привёл {invitee_id})",
+                         now_iso)
+        _credit_cashback(invitee, bonus, f"реферальный бонус (по приглашению "
+                         f"{inviter_id})", now_iso)
+    _referrals.append(referral)
+    _referrals_by_inviter.setdefault(inviter_id, []).append(referral)
+    _referred_invitees.add(invitee_id)
+
+    return {
+        "status": "ok",
+        "referral": referral,
+        "inviter_cashback_rub": int(inviter.get("cashback_balance_rub", 0)),
+        "invitee_cashback_rub": int(invitee.get("cashback_balance_rub", 0)),
+    }
+
+
+@app.get("/clients/{client_id}/referrals")
+async def list_referrals(client_id: str) -> dict:
+    """Рефералы клиента: кого он привёл (`as_inviter`) и кто привёл его
+    (`as_invitee`, если есть). Возвращает `{client_id, invited_count,
+    total_bonus_earned_rub, as_inviter: [...], as_invitee: {...}|null}`.
+    `404`, если клиента нет."""
+    if client_id not in _clients_by_id:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    invited = _referrals_by_inviter.get(client_id, [])
+    as_invitee = next((r for r in _referrals if r["invitee_id"] == client_id), None)
+    earned = sum(int(r["bonus_rub"]) for r in invited)
+    return {
+        "client_id": client_id,
+        "invited_count": len(invited),
+        "total_bonus_earned_rub": earned,
+        "as_inviter": list(reversed(invited)),
+        "as_invitee": as_invitee,
     }
 
 
