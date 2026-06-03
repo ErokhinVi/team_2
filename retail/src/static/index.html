@@ -179,6 +179,59 @@
     .client-picker select { width: 100%; margin-top: 4px; padding: 8px 10px;
       border: 1px solid var(--rule); background: var(--surface); border-radius: 6px;
       font-family: inherit; font-size: 13px; }
+
+    /* ---- Loan product cards ---- */
+    .product-cards { display: flex; flex-direction: column; gap: 12px; }
+    .product-card {
+      border: 1px solid var(--rule);
+      border-radius: 10px;
+      padding: 16px;
+      background: var(--bg);
+      cursor: pointer;
+      transition: border-color 160ms, box-shadow 160ms;
+    }
+    .product-card:hover { border-color: var(--text-2); }
+    .product-card.selected {
+      border-color: var(--text);
+      box-shadow: 0 0 0 1px var(--text);
+    }
+    .product-card .pc-name {
+      font-weight: 500; font-size: 15px; margin-bottom: 4px;
+    }
+    .product-card .pc-detail {
+      font-size: 12px; color: var(--text-2);
+    }
+    .product-card .pc-rate {
+      display: inline-block; margin-top: 8px;
+      background: var(--raiff); color: var(--text);
+      font-size: 12px; font-weight: 600;
+      padding: 3px 10px; border-radius: 10px;
+    }
+
+    .loan-result { margin-top: 18px; }
+    .loan-result .decision-box {
+      padding: 18px; border-radius: 10px; text-align: center;
+    }
+    .loan-result .decision-box.approved {
+      background: #e8f0e2; color: var(--good);
+    }
+    .loan-result .decision-box.declined {
+      background: #f4dfd6; color: var(--bad);
+    }
+    .loan-result .decision-box .decision-icon {
+      font-size: 32px; margin-bottom: 6px;
+    }
+    .loan-result .decision-box .decision-status {
+      font-size: 16px; font-weight: 600; margin-bottom: 4px;
+    }
+    .loan-result .decision-box .decision-detail {
+      font-size: 13px; opacity: 0.85;
+    }
+
+    .products-loading {
+      text-align: center; padding: 40px 0;
+      color: var(--muted); font-size: 13px;
+    }
   </style>
 </head>
 <body>
@@ -203,8 +256,10 @@
 
     <div class="tabs">
       <button class="tab active" data-tab="transfers" data-i18n="transfers_tab">Переводы</button>
+      <button class="tab" data-tab="loans" data-i18n="loans_tab">Кредиты</button>
     </div>
 
+    <!-- ===== Transfers pane ===== -->
     <div class="tab-pane show" data-pane="transfers">
       <div class="section-title" data-i18n="transfer_title">Перевести</div>
       <form id="transfer-form" autocomplete="off">
@@ -223,6 +278,27 @@
       <div class="section-title" style="margin-top:24px" data-i18n="recent_ops">Последние операции</div>
       <div id="tx-list" class="tx-list"></div>
     </div>
+
+    <!-- ===== Loans pane ===== -->
+    <div class="tab-pane" data-pane="loans">
+      <div class="section-title" data-i18n="choose_product">Выберите продукт</div>
+      <div id="product-list" class="product-cards">
+        <div class="products-loading" data-i18n="loading_products">Загрузка продуктов...</div>
+      </div>
+
+      <div id="loan-apply-section" style="display:none; margin-top: 20px;">
+        <div class="section-title" data-i18n="loan_amount_title">Сумма кредита</div>
+        <form id="loan-form" autocomplete="off">
+          <div class="form-row">
+            <label data-i18n="desired_amount">Желаемая сумма, ₽</label>
+            <input name="loan_amount" type="number" min="1000" step="1000" placeholder="100 000" />
+          </div>
+          <button class="btn primary" type="submit" data-i18n="apply_btn">Подать заявку</button>
+        </form>
+      </div>
+
+      <div id="loan-result" class="loan-result"></div>
+    </div>
   </div>
 
   <script>
@@ -232,58 +308,88 @@
     // ---- i18n ----
     const i18n = {
       ru: {
-        balance_label:   "остаток на счёте",
-        profile:         "Профиль",
-        transfers_tab:   "Переводы",
-        transfer_title:  "Перевести",
-        to_label:        "Кому",
-        to_placeholder:  "имя или ID получателя",
-        amount_label:    "Сумма, ₽",
-        transfer_btn:    "Перевести",
-        recent_ops:      "Последние операции",
-        no_ops:          "Операций пока нет",
-        load_fail:       "Не удалось загрузить операции",
-        fill_fields:     "введи получателя и сумму",
-        sent:            "Отправлено",
-        recipient:       "получатель",
-        bank_client:     "клиент банка",
-        external:        "внешний счёт",
-        error:           "ошибка",
-        server_down:     "сервер не ответил",
-        transfer_in:     "Перевод входящий",
-        transfer_out:    "Перевод исходящий",
-        card_purchase:   "Оплата картой",
-        atm_withdraw:    "Снятие в банкомате",
-        salary:          "Зарплата",
-        utility_payment: "Коммунальные",
-        toggle_label:    "EN",
+        balance_label:    "остаток на счёте",
+        profile:          "Профиль",
+        transfers_tab:    "Переводы",
+        loans_tab:        "Кредиты",
+        transfer_title:   "Перевести",
+        to_label:         "Кому",
+        to_placeholder:   "имя или ID получателя",
+        amount_label:     "Сумма, ₽",
+        transfer_btn:     "Перевести",
+        recent_ops:       "Последние операции",
+        no_ops:           "Операций пока нет",
+        load_fail:        "Не удалось загрузить операции",
+        fill_fields:      "введи получателя и сумму",
+        sent:             "Отправлено",
+        recipient:        "получатель",
+        bank_client:      "клиент банка",
+        external:         "внешний счёт",
+        error:            "ошибка",
+        server_down:      "сервер не ответил",
+        transfer_in:      "Перевод входящий",
+        transfer_out:     "Перевод исходящий",
+        card_purchase:    "Оплата картой",
+        atm_withdraw:     "Снятие в банкомате",
+        salary:           "Зарплата",
+        utility_payment:  "Коммунальные",
+        toggle_label:     "EN",
+        choose_product:   "Выберите продукт",
+        loading_products: "Загрузка продуктов...",
+        no_products:      "Продукты пока недоступны",
+        rate_label:       "Ставка",
+        loan_amount_title:"Сумма кредита",
+        desired_amount:   "Желаемая сумма, ₽",
+        apply_btn:        "Подать заявку",
+        fill_amount:      "Укажите сумму кредита",
+        approved:         "Одобрено!",
+        declined:         "Отказано",
+        approved_detail:  "Ваша заявка одобрена. Максимальная сумма",
+        declined_detail:  "К сожалению, заявка отклонена",
+        reason_label:     "Причина",
+        products_error:   "Не удалось загрузить продукты",
       },
       en: {
-        balance_label:   "account balance",
-        profile:         "Profile",
-        transfers_tab:   "Transfers",
-        transfer_title:  "Send money",
-        to_label:        "To",
-        to_placeholder:  "name or recipient ID",
-        amount_label:    "Amount, ₽",
-        transfer_btn:    "Transfer",
-        recent_ops:      "Recent transactions",
-        no_ops:          "No transactions yet",
-        load_fail:       "Could not load transactions",
-        fill_fields:     "enter recipient and amount",
-        sent:            "Sent",
-        recipient:       "recipient",
-        bank_client:     "bank client",
-        external:        "external account",
-        error:           "error",
-        server_down:     "server did not respond",
-        transfer_in:     "Incoming transfer",
-        transfer_out:    "Outgoing transfer",
-        card_purchase:   "Card purchase",
-        atm_withdraw:    "ATM withdrawal",
-        salary:          "Salary",
-        utility_payment: "Utilities",
-        toggle_label:    "RU",
+        balance_label:    "account balance",
+        profile:          "Profile",
+        transfers_tab:    "Transfers",
+        loans_tab:        "Loans",
+        transfer_title:   "Send money",
+        to_label:         "To",
+        to_placeholder:   "name or recipient ID",
+        amount_label:     "Amount, ₽",
+        transfer_btn:     "Transfer",
+        recent_ops:       "Recent transactions",
+        no_ops:           "No transactions yet",
+        load_fail:        "Could not load transactions",
+        fill_fields:      "enter recipient and amount",
+        sent:             "Sent",
+        recipient:        "recipient",
+        bank_client:      "bank client",
+        external:         "external account",
+        error:            "error",
+        server_down:      "server did not respond",
+        transfer_in:      "Incoming transfer",
+        transfer_out:     "Outgoing transfer",
+        card_purchase:    "Card purchase",
+        atm_withdraw:     "ATM withdrawal",
+        salary:           "Salary",
+        utility_payment:  "Utilities",
+        toggle_label:     "RU",
+        choose_product:   "Choose a product",
+        loading_products: "Loading products...",
+        no_products:      "No products available yet",
+        rate_label:       "Rate",
+        loan_amount_title:"Loan amount",
+        desired_amount:   "Desired amount, ₽",
+        apply_btn:        "Apply for loan",
+        fill_amount:      "Please enter a loan amount",
+        approved:         "Approved!",
+        declined:         "Declined",
+        approved_detail:  "Your application is approved. Maximum amount",
+        declined_detail:  "Unfortunately, your application was declined",
+        reason_label:     "Reason",
+        products_error:   "Could not load products",
       }
     };
 
@@ -300,9 +406,10 @@
         el.placeholder = t(el.dataset.i18nPlaceholder);
       });
       document.getElementById("lang-toggle").textContent = t("toggle_label");
-      // re-render transactions in the new language
       const opt = sel.selectedOptions[0];
       if (opt) loadTx(opt.value);
+      // re-render product cards in new language
+      if (productsData.length) renderProducts();
     }
 
     document.getElementById("lang-toggle").addEventListener("click", () => {
@@ -317,6 +424,9 @@
     const topbarWho = document.getElementById("topbar-who");
     const txList = document.getElementById("tx-list");
     const transferResult = document.getElementById("transfer-result");
+    const productList = document.getElementById("product-list");
+    const loanApplySection = document.getElementById("loan-apply-section");
+    const loanResult = document.getElementById("loan-result");
 
     // ---- tabs ----
     document.querySelectorAll(".tab").forEach(btn => {
@@ -349,6 +459,8 @@
       balanceV.textContent = fmt.format(+opt.dataset.balance || 0);
       topbarWho.textContent = opt.dataset.name;
       loadTx(opt.value);
+      // reset loan result when switching customer
+      loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
 
@@ -436,7 +548,105 @@
       }
     });
 
+    // ---- Loan products ----
+    let productsData = [];
+    let selectedProductId = null;
+
+    async function loadProducts() {
+      try {
+        const r = await fetch("/products");
+        const d = await r.json();
+        productsData = (d.items || []).filter(p => p.kind === "credit" || p.kind === "loan");
+        // if no credit-specific products, show all
+        if (!productsData.length) productsData = d.items || [];
+        renderProducts();
+      } catch(e) {
+        productList.innerHTML = `<div class="products-loading">${t("products_error")}</div>`;
+      }
+    }
+
+    function renderProducts() {
+      if (!productsData.length) {
+        productList.innerHTML = `<div class="products-loading">${t("no_products")}</div>`;
+        loanApplySection.style.display = "none";
+        return;
+      }
+      productList.innerHTML = productsData.map(p => {
+        const sel = p.id === selectedProductId ? "selected" : "";
+        const rateHtml = p.rate_pct != null
+          ? `<span class="pc-rate">${t("rate_label")}: ${p.rate_pct}%</span>`
+          : "";
+        return `<div class="product-card ${sel}" data-product-id="${p.id}">
+          <div class="pc-name">${p.name}</div>
+          <div class="pc-detail">${p.description || p.kind || ""}</div>
+          ${rateHtml}
+        </div>`;
+      }).join("");
+
+      // click handlers
+      productList.querySelectorAll(".product-card").forEach(card => {
+        card.addEventListener("click", () => {
+          selectedProductId = card.dataset.productId;
+          productList.querySelectorAll(".product-card").forEach(c => c.classList.remove("selected"));
+          card.classList.add("selected");
+          loanApplySection.style.display = "block";
+          loanResult.innerHTML = "";
+        });
+      });
+    }
+
+    // ---- Loan application form ----
+    const loanForm = document.getElementById("loan-form");
+    loanForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      loanResult.innerHTML = "";
+      const opt = sel.selectedOptions[0];
+      if (!opt || !selectedProductId) return;
+      const amount = +new FormData(ev.target).get("loan_amount");
+      if (!amount || amount <= 0) {
+        loanResult.innerHTML = `<div class="alert error">${t("fill_amount")}</div>`;
+        return;
+      }
+
+      const payload = {
+        client_id: opt.value,
+        product_id: selectedProductId,
+        amount_rub: amount,
+      };
+
+      try {
+        const r = await fetch("/api/credit-apply", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload),
+        });
+        const d = await r.json();
+        if (r.ok) {
+          const isApproved = d.status === "approved";
+          const icon = isApproved ? "&#10003;" : "&#10007;";
+          const cls = isApproved ? "approved" : "declined";
+          const status = isApproved ? t("approved") : t("declined");
+          let detail = isApproved
+            ? `${t("approved_detail")}: ${fmt.format(d.max_amount_rub || amount)} ₽`
+            : `${t("declined_detail")}`;
+          if (d.reason) {
+            detail += `<br/>${t("reason_label")}: ${d.reason}`;
+          }
+          loanResult.innerHTML = `<div class="decision-box ${cls}">
+            <div class="decision-icon">${icon}</div>
+            <div class="decision-status">${status}</div>
+            <div class="decision-detail">${detail}</div>
+          </div>`;
+        } else {
+          loanResult.innerHTML = `<div class="alert error">${d.detail || t("error")}</div>`;
+        }
+      } catch(e) {
+        loanResult.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+      }
+    });
+
     loadClients();
+    loadProducts();
     applyLang();
   })();
   </script>
