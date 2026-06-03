@@ -120,17 +120,13 @@ async def credit_decide(req: DecideRequest) -> dict:
         raise HTTPException(status_code=502, detail="Backend unavailable")
     customer = resp.json()
 
-    # Find the requested product. Accept retail's alias "credit-card" for the
-    # credit card, so eligibility checks from the app resolve correctly.
-    product_id = req.product_id
-    if product_id == "credit-card":
-        product_id = "card-credit"
-    product = next((p for p in PRODUCTS if p["id"] == product_id), None)
+    # Find the requested product
+    product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
     if product is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
-    # Credit-type products only (consumer loans and credit cards)
-    if product["kind"] not in ("credit", "credit_card"):
+    # Credit products only
+    if product["kind"] != "credit":
         raise HTTPException(status_code=400, detail="Product is not a credit product")
 
     # Determine applicable risk threshold based on amount vs income
@@ -326,21 +322,17 @@ async def deposit_open(req: DepositOpenRequest) -> dict:
             detail=f"Minimum deposit amount is {min_amount} rubles for this product"
         )
 
-    import calendar
     import datetime
-
-    today = datetime.date.today()
-    opened_at = today.isoformat()
+    opened_at = datetime.date.today().isoformat()
     term_months = product.get("term_months")
     matures_at = None
     if term_months:
-        total = today.month - 1 + term_months
-        year = today.year + total // 12
-        month = total % 12 + 1
-        # Clamp the day to the last valid day of the target month
-        last_day = calendar.monthrange(year, month)[1]
-        day = min(today.day, last_day)
-        matures_at = datetime.date(year, month, day).isoformat()
+        import datetime as dt
+        today = dt.date.today()
+        matures_at = today.replace(
+            month=((today.month - 1 + term_months) % 12) + 1,
+            year=today.year + (today.month - 1 + term_months) // 12,
+        ).isoformat()
 
     interest_rub = round(
         req.amount_rub * product["rate_pct"] / 100 * (term_months or 12) / 12

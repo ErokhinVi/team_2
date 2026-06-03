@@ -45,6 +45,9 @@ SEED_DIR = _find_seed_dir()
 _clients: list[dict[str, Any]] = []
 _clients_by_id: dict[str, dict[str, Any]] = {}
 _transactions: list[dict[str, Any]] = []
+# Журнал открытых продуктов: кто, какой продукт и когда оформил.
+_product_events: list[dict[str, Any]] = []
+_product_events_by_client: dict[str, list[dict[str, Any]]] = {}
 _credit_cards: list[dict[str, Any]] = []
 _cards_by_id: dict[str, dict[str, Any]] = {}
 _cards_by_client: dict[str, list[dict[str, Any]]] = {}
@@ -442,3 +445,66 @@ async def pay_credit_card(card_id: str, payload: dict) -> dict:
     })
     return {"status": "ok", "card_id": card_id, "paid_rub": amount,
             **_card_view(card)}
+
+
+# ---------- Продукты клиента ----------
+
+@app.post("/api/clients/{client_id}/products")
+async def add_client_product(client_id: str, payload: dict) -> dict:
+    """Записать новый продукт в профиль клиента. Зовёт cib после того, как
+    подтвердил открытие (вклад, карта и т.п.). Принимает JSON
+    `{product, opened_at?, source?, details?}`. `product` — код продукта
+    (строка). Возвращает `{status, client_id, product, products, event}`.
+    404 — если клиента нет, 400 — если не указан продукт."""
+    client = _clients_by_id.get(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    product = (payload.get("product") or "").strip()
+    if not product:
+        raise HTTPException(status_code=400, detail="укажи продукт (поле product)")
+    opened_at = (payload.get("opened_at") or "").strip() \
+        or datetime.now().date().isoformat()
+    source = (payload.get("source") or "cib").strip()
+    details = payload.get("details") if isinstance(payload.get("details"), dict) else {}
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+
+    products = client.setdefault("products", [])
+    already_had = product in products
+    if not already_had:
+        products.append(product)
+
+    event = {
+        "event_id": f"pe-{len(_product_events) + 1:06d}",
+        "client_id": client_id,
+        "product": product,
+        "opened_at": opened_at,
+        "source": source,
+        "details": details,
+        "ts": now_iso,
+    }
+    _product_events.append(event)
+    _product_events_by_client.setdefault(client_id, []).append(event)
+
+    return {
+        "status": "ok",
+        "client_id": client_id,
+        "product": product,
+        "already_had": already_had,
+        "products": products,
+        "event": event,
+    }
+
+
+@app.get("/clients/{client_id}/products")
+async def list_client_products(client_id: str) -> dict:
+    """Продукты клиента и журнал их открытий (новые сверху)."""
+    client = _clients_by_id.get(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    events = list(reversed(_product_events_by_client.get(client_id, [])))
+    return {
+        "client_id": client_id,
+        "products": client.get("products", []),
+        "events_total": len(events),
+        "events": events,
+    }
