@@ -22,6 +22,8 @@
         icon: ICON('<path d="M4 20V11M9 20V5M14 20V14M19 20V8"/>') },
       { key: "loans",      i18n: "loans_tab",
         icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>') },
+      { key: "mortgage",   i18n: "mortgage_tab",
+        icon: ICON('<path d="M3 11 12 4l9 7"/><path d="M5 10.5V20h5v-5h4v5h5v-9.5"/><circle cx="14.5" cy="13" r="1"/>') },
     ];
 
     // ---- i18n ----
@@ -126,6 +128,28 @@
         brokerage_tab:    "Брокер",
         loading_brokerage: "Загрузка брокеража...",
         brokerage_error:  "Не удалось загрузить брокеридж",
+        mortgage_tab:     "Ипотека",
+        loading_mortgage: "Загрузка ипотеки...",
+        mortgage_error:   "Не удалось загрузить ипотеку",
+        mortgage_title:   "Ипотечный калькулятор",
+        property_price:   "Стоимость недвижимости, ₽",
+        down_payment:     "Первоначальный взнос, ₽",
+        term_years:       "Срок, лет",
+        years_short:      "лет",
+        loan_amount:      "Сумма кредита",
+        monthly_payment:  "Ежемесячный платёж",
+        total_to_pay:     "Всего к выплате",
+        ltv_label:        "LTV",
+        dti_label:        "DTI",
+        rate_label_short: "Ставка",
+        get_quote:        "Рассчитать",
+        apply_mortgage:   "Подать заявку",
+        approved_mortgage: "Заявка одобрена",
+        declined_mortgage: "Заявка отклонена",
+        your_mortgages:   "Ваши ипотеки",
+        no_mortgages:     "У вас пока нет ипотек",
+        mortgage_intro:   "Рассчитайте платёж, и мы подберём подходящие условия.",
+        fill_mortgage:    "Заполните стоимость, взнос и срок",
         trading_cash:     "Свободные средства",
         positions_value:  "Стоимость позиций",
         your_positions:   "Ваши позиции",
@@ -269,6 +293,28 @@
         brokerage_tab:    "Broker",
         loading_brokerage: "Loading brokerage...",
         brokerage_error:  "Could not load brokerage",
+        mortgage_tab:     "Mortgage",
+        loading_mortgage: "Loading mortgage...",
+        mortgage_error:   "Could not load mortgage",
+        mortgage_title:   "Mortgage calculator",
+        property_price:   "Property price, ₽",
+        down_payment:     "Down payment, ₽",
+        term_years:       "Term, years",
+        years_short:      "yrs",
+        loan_amount:      "Loan amount",
+        monthly_payment:  "Monthly payment",
+        total_to_pay:     "Total to pay",
+        ltv_label:        "LTV",
+        dti_label:        "DTI",
+        rate_label_short: "Rate",
+        get_quote:        "Calculate",
+        apply_mortgage:   "Apply for mortgage",
+        approved_mortgage: "Approved",
+        declined_mortgage: "Declined",
+        your_mortgages:   "Your mortgages",
+        no_mortgages:     "You have no mortgages yet",
+        mortgage_intro:   "Calculate your payment and we'll find suitable terms.",
+        fill_mortgage:    "Fill in price, down payment and term",
         trading_cash:     "Available cash",
         positions_value:  "Positions value",
         your_positions:   "Your positions",
@@ -335,6 +381,7 @@
         loadSavings(opt.value);
         loadInvest(opt.value);
         loadBrokerage(opt.value);
+        loadMortgage(opt.value);
       }
       if (productsData.length) renderProducts();
     }
@@ -359,6 +406,7 @@
     const savingsContainer = document.getElementById("savings-container");
     const investContainer = document.getElementById("invest-container");
     const brokerageContainer = document.getElementById("brokerage-container");
+    const mortgageContainer = document.getElementById("mortgage-container");
 
     // ---- tabs (built from TAB_DEFS) ----
     document.querySelector(".tabs").innerHTML = TAB_DEFS.map((tdef, i) =>
@@ -379,6 +427,7 @@
         if (opt && btn.dataset.tab === "savings") loadSavings(opt.value);
         if (opt && btn.dataset.tab === "invest") loadInvest(opt.value);
         if (opt && btn.dataset.tab === "brokerage") loadBrokerage(opt.value);
+        if (opt && btn.dataset.tab === "mortgage") loadMortgage(opt.value);
       });
     });
 
@@ -408,6 +457,7 @@
       loadSavings(opt.value);
       loadInvest(opt.value);
       loadBrokerage(opt.value);
+      loadMortgage(opt.value);
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
@@ -866,6 +916,162 @@
           }
         });
       }
+    }
+
+    // ---- Mortgage ----
+    let mortgageMeta = null;
+    let mortgageLastQuote = null;
+
+    async function loadMortgage(clientId) {
+      try {
+        const r = await fetch(`/api/mortgage/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        mortgageMeta = await r.json();
+        renderMortgage(mortgageMeta);
+      } catch (e) {
+        mortgageContainer.innerHTML = `<div class="empty">${t("mortgage_error")}</div>`;
+      }
+    }
+
+    function annuityMonthly(principal, annualPct, months) {
+      if (!principal || !months) return 0;
+      const r = (annualPct / 100) / 12;
+      if (!r) return principal / months;
+      const f = Math.pow(1 + r, months);
+      return principal * (r * f) / (f - 1);
+    }
+
+    function renderMortgage(d) {
+      const existing = d.existing_mortgages || [];
+      let existingHtml = "";
+      if (existing.length) {
+        existingHtml = `<div class="section-title">${t("your_mortgages")}</div>` +
+          existing.map(m => `
+            <div class="existing-deposit">
+              <div class="ed-top">
+                <span class="ed-name">${m.property_address || m.product || t("mortgage_tab")}</span>
+                <span class="ed-amount">${fmt.format(m.loan_amount_rub || m.principal_rub || 0)} ₽</span>
+              </div>
+              <div class="ed-detail">
+                ${m.rate_pct || ""}% · ${m.term_years || ""} ${t("years_short")} · ${t("monthly_payment")}: ${fmt.format(m.monthly_payment_rub || 0)} ₽
+              </div>
+            </div>
+          `).join("");
+      }
+
+      mortgageContainer.innerHTML = `
+        ${existingHtml}
+        <div class="section-title" style="margin-top:18px">${t("mortgage_title")}</div>
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">${t("mortgage_intro")}</div>
+
+        <form id="mortgage-form" autocomplete="off">
+          <div class="form-row">
+            <label>${t("property_price")}</label>
+            <input name="price" type="number" min="100000" step="100000" placeholder="10 000 000" />
+          </div>
+          <div class="form-row">
+            <label>${t("down_payment")}</label>
+            <input name="down" type="number" min="0" step="50000" placeholder="2 000 000" />
+          </div>
+          <div class="form-row">
+            <label>${t("term_years")}</label>
+            <select name="term">
+              ${[5,10,15,20,25,30].map(y =>
+                `<option value="${y}"${y === 20 ? " selected" : ""}>${y} ${t("years_short")}</option>`).join("")}
+            </select>
+          </div>
+
+          <div id="mortgage-preview" class="cc-details" style="display:none">
+            <div class="cc-detail-row"><span class="cc-dl">${t("loan_amount")}</span><span class="cc-dv" id="mp-loan">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("monthly_payment")}</span><span class="cc-dv" id="mp-month">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("total_to_pay")}</span><span class="cc-dv" id="mp-total">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("rate_label_short")}</span><span class="cc-dv" id="mp-rate">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("ltv_label")}</span><span class="cc-dv" id="mp-ltv">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("dti_label")}</span><span class="cc-dv" id="mp-dti">—</span></div>
+          </div>
+
+          <button class="btn primary" type="submit">${t("apply_mortgage")}</button>
+        </form>
+        <div id="mortgage-result"></div>
+      `;
+
+      const form = document.getElementById("mortgage-form");
+      const preview = document.getElementById("mortgage-preview");
+      const inputs = form.querySelectorAll("input, select");
+
+      function localUpdate() {
+        const price = +form.price.value || 0;
+        const down = +form.down.value || 0;
+        const years = +form.term.value || 0;
+        if (price <= 0 || years <= 0) { preview.style.display = "none"; return; }
+        const loan = Math.max(price - down, 0);
+        const monthly = annuityMonthly(loan, d.default_rate_pct, years * 12);
+        const total = monthly * years * 12;
+        const ltv = price > 0 ? (loan / price) * 100 : 0;
+        const dti = d.income_rub > 0 ? (monthly / d.income_rub) * 100 : null;
+        document.getElementById("mp-loan").textContent  = fmt.format(Math.round(loan)) + " ₽";
+        document.getElementById("mp-month").textContent = fmt.format(Math.round(monthly)) + " ₽";
+        document.getElementById("mp-total").textContent = fmt.format(Math.round(total)) + " ₽";
+        document.getElementById("mp-rate").textContent  = d.default_rate_pct + "%";
+        document.getElementById("mp-ltv").textContent   = ltv.toFixed(1) + "%";
+        document.getElementById("mp-dti").textContent   = dti == null ? "—" : dti.toFixed(1) + "%";
+        preview.style.display = "flex";
+      }
+      inputs.forEach(el => el.addEventListener("input", localUpdate));
+      inputs.forEach(el => el.addEventListener("change", localUpdate));
+
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const resBox = document.getElementById("mortgage-result");
+        resBox.innerHTML = "";
+        const price = +form.price.value || 0;
+        const down = +form.down.value || 0;
+        const years = +form.term.value || 0;
+        if (price <= 0 || years <= 0) {
+          resBox.innerHTML = `<div class="alert error">${t("fill_mortgage")}</div>`;
+          return;
+        }
+        if (down > availableBalance()) {
+          resBox.innerHTML = `<div class="alert error">${t("insufficient_funds")}</div>`;
+          return;
+        }
+        try {
+          const r = await fetch("/api/mortgage/apply", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              client_id: d.client_id,
+              property_price_rub: price,
+              down_payment_rub: down,
+              term_years: years,
+            }),
+          });
+          const res = await r.json();
+          if (r.ok && res.status === "approved") {
+            resBox.innerHTML = `<div class="decision-box approved">
+              <div class="decision-icon">&#10003;</div>
+              <div class="decision-status">${t("approved_mortgage")}</div>
+              <div class="decision-detail">
+                ${t("loan_amount")}: ${fmt.format(res.loan_amount_rub)} ₽ · ${res.rate_pct}%<br/>
+                ${t("monthly_payment")}: ${fmt.format(Math.round(res.monthly_payment_rub))} ₽ · ${res.term_years} ${t("years_short")}
+              </div>
+            </div>`;
+            setTimeout(() => loadMortgage(d.client_id), 600);
+          } else if (r.ok && res.status === "declined") {
+            const reasons = (res.reasons || []).map(x => `<li>${x}</li>`).join("");
+            resBox.innerHTML = `<div class="decision-box declined">
+              <div class="decision-icon">&#10007;</div>
+              <div class="decision-status">${t("declined_mortgage")}</div>
+              <div class="decision-detail">
+                <ul style="margin:8px 0 0; padding-left:18px; text-align:left">${reasons}</ul>
+              </div>
+            </div>`;
+          } else {
+            resBox.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+          }
+        } catch (e) {
+          resBox.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+        }
+      });
     }
 
     // ---- Brokerage ----

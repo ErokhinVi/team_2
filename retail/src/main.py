@@ -12,7 +12,7 @@ from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
-from src import brokerage, cards, core, investments, loans, savings, transfers
+from src import brokerage, cards, core, investments, loans, mortgages, savings, transfers
 from src.services import BACKEND_URL, CIB_URL, COMMIT, STATIC_DIR, TEAM_NAME
 
 app = FastAPI(title="retail — мобильный банк", version="2.0.0")
@@ -42,5 +42,6 @@ for _router in (
     investments.router,
     brokerage.router,
     loans.router,
+    mortgages.router,
 ):
     app.include_router(_router)

@@ -79,6 +79,29 @@ Payment toward credit card balance. Accepts `{client_id, amount_rub}`.
 Tries backend `POST /credit-card-payment`; if unavailable, returns
 simulated confirmation `{status, client_id, amount_rub, message, source}`.
 
+### GET /api/mortgage/{client_id}
+Mortgage screen overview. Returns customer income/balance, the bank's mortgage
+policy (default rate, min down payment %, max DTI, term range, min loan), and
+existing mortgages from backend if available. Returns `{client_id,
+customer_name, income_rub, balance_rub, default_rate_pct, min_down_payment_pct,
+max_dti_pct, min_term_years, max_term_years, min_loan_rub, existing_mortgages,
+mortgages_source}`.
+
+### POST /api/mortgage/quote
+Live mortgage quote — no commitment. Accepts `{client_id, property_price_rub,
+down_payment_rub, term_years}`. Tries CIB POST /mortgage/quote (when shipped);
+otherwise computes locally using the annuity formula. Returns
+`{approved, rate_pct, loan_amount_rub, monthly_payment_rub, total_to_pay_rub,
+total_interest_rub, ltv_pct, dti_pct, term_years, term_months, reasons, source}`.
+
+### POST /api/mortgage/apply
+Submit a mortgage application. Accepts the same payload as /quote. Tries CIB
+POST /mortgage/apply for the decision; on approval, tries backend POST
+/clients/{id}/mortgages to open the account. Returns `{status:
+"approved"|"declined", client_id, mortgage_id?, loan_amount_rub, rate_pct,
+term_years, monthly_payment_rub, ltv_pct, dti_pct, total_to_pay_rub?, reasons?,
+source}`.
+
 ### POST /api/credit-apply
 Заявка на кредит. Принимает JSON `{client_id, product_id, amount_rub}`.
 Orchestration: fetches customer profile from backend, then asks cib
@@ -89,8 +112,8 @@ amount_rub, max_amount_rub, reason, source}`.
 
 ## Кого я зову у соседей
 
-- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell)
-- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan` (suitability + symbol + qty + price for an `amount_rub`), `POST /investment/order-check` (validates trade, returns commission)
+- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/mortgages` (when shipped), `POST /clients/{id}/mortgages` (when shipped — debits down payment, stores account)
+- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/quote` (when shipped — payload `{client_id, property_price_rub, down_payment_rub, term_years}`, returns approve/decline + rate + monthly payment + LTV + DTI), `POST /mortgage/apply` (when shipped — same payload, commits the decision)
 
 ## Где работает блок локально
 
