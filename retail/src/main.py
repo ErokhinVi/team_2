@@ -20,8 +20,16 @@ from src.services import BACKEND_URL, CIB_URL, COMMIT, STATIC_DIR, TEAM_NAME
 
 app = FastAPI(title="retail — мобильный банк", version="2.1.0")
 
-# Static assets (styles.css, app.js, ...) live next to index.html.
+# ---- Blue / green deployment ----
+# Production assets live in src/static/ and are served at "/" + "/static/*".
+# A staging copy lives in src/staging/ and is served at "/preview" +
+# "/static-preview/*". Push experimental UI into staging, test against the
+# live backend at /preview, then promote by copying staging → static.
+STAGING_DIR = STATIC_DIR.parent / "staging"
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+if STAGING_DIR.exists():
+    app.mount("/static-preview", StaticFiles(directory=STAGING_DIR), name="static-preview")
 
 
 @app.get("/health")
@@ -34,6 +42,24 @@ async def health() -> dict:
 async def index() -> str:
     f = STATIC_DIR / "index.html"
     return f.read_text(encoding="utf-8") if f.exists() else "<h1>Розница</h1>"
+
+
+@app.get("/preview", response_class=HTMLResponse)
+async def preview() -> str:
+    """Serve the staging copy of the UI for blue/green testing."""
+    f = STAGING_DIR / "index.html"
+    if not f.exists():
+        return "<h1>preview not available</h1>"
+    html = f.read_text(encoding="utf-8")
+    # Inject a small "preview" badge so it's obvious which build is on screen.
+    badge = (
+        '<div style="position:fixed;top:8px;left:8px;z-index:9999;'
+        'background:#1c1a15;color:#FFE600;font-family:system-ui,sans-serif;'
+        'font-size:10px;font-weight:700;letter-spacing:.08em;'
+        'padding:3px 9px;border-radius:12px;text-transform:uppercase;">'
+        'preview</div>'
+    )
+    return html.replace("</body>", badge + "</body>", 1)
 
 
 # ---- Profile-lock endpoints ----

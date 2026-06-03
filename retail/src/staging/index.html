@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=414,initial-scale=1" />
+  <title>Self-Driving Raif · мобильный банк</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static-preview/styles.css" />
+</head>
+<body>
+  <div class="phone">
+    <div class="topbar">
+      <div class="left">
+        <div><span class="logo"></span><span class="name">Self-Driving Raif</span></div>
+        <div class="who" id="topbar-who"></div>
+      </div>
+      <button class="lang-toggle" id="lang-toggle">EN</button>
+    </div>
+
+    <div class="balance">
+      <div class="l" data-i18n="balance_label">остаток на счёте</div>
+      <div class="v"><span id="balance-v">—</span><span class="cur">₽</span></div>
+    </div>
+
+    <div class="client-picker">
+      <label data-i18n="profile">Профиль</label>
+      <select id="client-select"></select>
+    </div>
+
+    <div id="lock-banner" style="display:none"></div>
+
+    <!-- Bottom navigation is built from the TAB_DEFS registry in app.js -->
+    <div class="tabs"></div>
+
+    <!-- ===== Transfers pane (home) ===== -->
+    <div class="tab-pane show" data-pane="transfers">
+      <div id="offers-container"></div>
+      <div class="section-title" data-i18n="transfer_title">Перевести</div>
+      <form id="transfer-form" autocomplete="off">
+        <div class="form-row">
+          <label data-i18n="to_label">Кому</label>
+          <input name="to" data-i18n-placeholder="to_placeholder" placeholder="имя или ID получателя" />
+        </div>
+        <div class="form-row">
+          <label data-i18n="amount_label">Сумма, ₽</label>
+          <input name="amount" type="number" min="1" placeholder="0" />
+        </div>
+        <button class="btn primary" type="submit" data-i18n="transfer_btn">Перевести</button>
+      </form>
+      <div id="transfer-result"></div>
+      <div class="section-title" style="margin-top:24px" data-i18n="recent_ops">Последние операции</div>
+      <div id="tx-list" class="tx-list"></div>
+    </div>
+
+    <!-- ===== Debit Card pane ===== -->
+    <div class="tab-pane" data-pane="card">
+      <div id="card-container">
+        <div class="products-loading" data-i18n="loading_card">Загрузка карты...</div>
+      </div>
+    </div>
+
+    <!-- ===== Credit Card pane ===== -->
+    <div class="tab-pane" data-pane="creditcard">
+      <div id="cc-container">
+        <div class="products-loading" data-i18n="loading_cc">Загрузка кредитной карты...</div>
+      </div>
+    </div>
+
+    <!-- ===== Savings pane ===== -->
+    <div class="tab-pane" data-pane="savings">
+      <div id="savings-container">
+        <div class="products-loading" data-i18n="loading_savings">Загрузка вкладов...</div>
+      </div>
+    </div>
+
+    <!-- ===== Investments pane ===== -->
+    <div class="tab-pane" data-pane="invest">
+      <div id="invest-container">
+        <div class="products-loading" data-i18n="loading_invest">Загрузка инвестиций...</div>
+      </div>
+    </div>
+
+    <!-- ===== Brokerage pane ===== -->
+    <div class="tab-pane" data-pane="brokerage">
+      <div id="brokerage-container">
+        <div class="products-loading" data-i18n="loading_brokerage">Загрузка брокеража...</div>
+      </div>
+    </div>
+
+    <!-- ===== Mortgage pane ===== -->
+    <div class="tab-pane" data-pane="mortgage">
+      <div id="mortgage-container">
+        <div class="products-loading" data-i18n="loading_mortgage">Загрузка ипотеки...</div>
+      </div>
+    </div>
+
+    <!-- ===== Car loan pane ===== -->
+    <div class="tab-pane" data-pane="carloan">
+      <div id="carloan-container">
+        <div class="products-loading" data-i18n="loading_carloan">Загрузка автокредита...</div>
+      </div>
+    </div>
+
+    <!-- ===== Refinance pane ===== -->
+    <div class="tab-pane" data-pane="refinance">
+      <div id="refinance-container">
+        <div class="products-loading" data-i18n="loading_refinance">Загрузка рефинансирования...</div>
+      </div>
+    </div>
+
+    <!-- ===== Invite (member-get-member) pane ===== -->
+    <div class="tab-pane" data-pane="invite">
+      <div id="invite-container">
+        <div class="products-loading" data-i18n="loading_invite">Загрузка приглашений...</div>
+      </div>
+    </div>
+
+    <!-- ===== Loans pane ===== -->
+    <div class="tab-pane" data-pane="loans">
+      <div class="section-title" data-i18n="choose_product">Выберите продукт</div>
+      <div id="product-list" class="product-cards">
+        <div class="products-loading" data-i18n="loading_products">Загрузка продуктов...</div>
+      </div>
+      <div id="loan-apply-section" style="display:none; margin-top: 20px;">
+        <div class="section-title" data-i18n="loan_amount_title">Сумма кредита</div>
+        <form id="loan-form" autocomplete="off">
+          <div class="form-row">
+            <label data-i18n="desired_amount">Желаемая сумма, ₽</label>
+            <input name="loan_amount" type="number" min="1000" step="1000" placeholder="100 000" />
+          </div>
+          <button class="btn primary" type="submit" data-i18n="apply_btn">Подать заявку</button>
+        </form>
+      </div>
+      <div id="loan-result" class="loan-result"></div>
+    </div>
+  </div>
+
+  <script src="/static-preview/app.js"></script>
+</body>
+</html>
