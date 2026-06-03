@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +67,14 @@ _orders_by_client: dict[str, list[dict[str, Any]]] = {}
 _credit_cards: list[dict[str, Any]] = []
 _cards_by_id: dict[str, dict[str, Any]] = {}
 _cards_by_client: dict[str, list[dict[str, Any]]] = {}
+
+# Вклады: списываем деньги с баланса клиента и держим их во вкладе, пока он
+# не закрыт. Журнал вкладов + индексы по id и по клиенту.
+_deposits: list[dict[str, Any]] = []
+_deposits_by_id: dict[str, dict[str, Any]] = {}
+_deposits_by_client: dict[str, list[dict[str, Any]]] = {}
+# Продукты, у которых разрешено досрочное снятие без потери процентов.
+DEPOSIT_FLEX_PRODUCTS = {"deposit-flex", "savings-flex"}
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -524,6 +532,186 @@ async def list_client_products(client_id: str) -> dict:
         "products": client.get("products", []),
         "events_total": len(events),
         "events": events,
+    }
+
+
+# ---------- Вклады: движение денег ----------
+
+def _add_months(iso_date: str, months: int) -> str:
+    """Прибавить months месяцев к дате YYYY-MM-DD, аккуратно к концу месяца."""
+    d = datetime.strptime(iso_date, "%Y-%m-%d").date()
+    total = (d.year * 12 + (d.month - 1)) + int(months)
+    year, month = divmod(total, 12)
+    month += 1
+    # последний допустимый день целевого месяца
+    if month == 12:
+        last = 31
+    else:
+        nxt = datetime(year + (1 if month == 12 else 0),
+                       (month % 12) + 1, 1).date()
+        last = (nxt - timedelta(days=1)).day
+    day = min(d.day, last)
+    return datetime(year, month, day).date().isoformat()
+
+
+def _deposit_view(dep: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "deposit_id": dep["deposit_id"],
+        "client_id": dep["client_id"],
+        "product": dep["product"],
+        "amount_rub": dep["amount_rub"],
+        "term_months": dep["term_months"],
+        "rate_pct": dep["rate_pct"],
+        "status": dep["status"],
+        "opened_at": dep["opened_at"],
+        "matures_at": dep["matures_at"],
+    }
+
+
+@app.post("/api/deposits")
+async def open_deposit(payload: dict) -> dict:
+    """Открыть вклад: списываем `amount_rub` со счёта клиента и держим во
+    вкладе. Кешбэк не начисляется. Принимает JSON
+    `{client_id, product, amount_rub, term_months?, rate_pct?}`. Возвращает
+    `{status, client_id, deposit_id, product, amount_rub, new_balance_rub,
+    matures_at, ts}`. `400`, если сумма больше баланса; `404`, если клиента нет."""
+    cid = payload.get("client_id")
+    client = _clients_by_id.get(cid)
+    if not client:
+        raise HTTPException(status_code=404, detail="клиент не найден")
+    product = (payload.get("product") or "deposit").strip()
+    amount = int(payload.get("amount_rub") or 0)
+    term_months = int(payload.get("term_months") or 0)
+    rate_pct = float(payload.get("rate_pct") or 0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="укажи положительную сумму")
+    if amount > client["balance_rub"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"недостаточно средств: на счёте {client['balance_rub']} ₽",
+        )
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+    opened_at = datetime.now().date().isoformat()
+    matures_at = _add_months(opened_at, term_months) if term_months > 0 else opened_at
+    client["balance_rub"] -= amount
+
+    deposit_id = f"d-{len(_deposits) + 1:06d}"
+    early_withdrawal = product in DEPOSIT_FLEX_PRODUCTS
+    dep = {
+        "deposit_id": deposit_id,
+        "client_id": cid,
+        "product": product,
+        "amount_rub": amount,
+        "term_months": term_months,
+        "rate_pct": rate_pct,
+        "early_withdrawal": early_withdrawal,
+        "status": "active",
+        "opened_at": opened_at,
+        "matures_at": matures_at,
+        "ts": now_iso,
+    }
+    _deposits.append(dep)
+    _deposits_by_id[deposit_id] = dep
+    _deposits_by_client.setdefault(cid, []).append(dep)
+
+    tx = {
+        "id": f"t-{100000 + len(_transactions) + 1:08d}",
+        "client_id": cid, "type": "deposit_open", "amount_rub": -amount,
+        "ts": now_iso, "counterparty": product, "cashback_rub": 0,
+    }
+    _transactions.append(tx)
+
+    return {
+        "status": "ok",
+        "client_id": cid,
+        "deposit_id": deposit_id,
+        "product": product,
+        "amount_rub": amount,
+        "new_balance_rub": client["balance_rub"],
+        "matures_at": matures_at,
+        "ts": now_iso,
+    }
+
+
+@app.get("/clients/{client_id}/deposits")
+async def list_client_deposits(client_id: str) -> dict:
+    """Вклады клиента (новые сверху)."""
+    if client_id not in _clients_by_id:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    deps = list(reversed(_deposits_by_client.get(client_id, [])))
+    return {"client_id": client_id, "total": len(deps),
+            "items": [_deposit_view(d) for d in deps]}
+
+
+@app.get("/deposits/{deposit_id}")
+async def get_deposit(deposit_id: str) -> dict:
+    dep = _deposits_by_id.get(deposit_id)
+    if not dep:
+        raise HTTPException(status_code=404, detail=f"вклад {deposit_id} не найден")
+    return _deposit_view(dep)
+
+
+@app.post("/api/deposits/{deposit_id}/withdraw")
+async def withdraw_deposit(deposit_id: str, payload: dict | None = None) -> dict:
+    """Закрыть вклад и вернуть тело (+ проценты, если срок вышел) на счёт.
+    Тело `{}` или `{early: true}`. Для гибких вкладов снятие всегда без потери
+    процентов; для срочных досрочное снятие платит сниженные проценты.
+    Возвращает `{status, client_id, returned_rub, new_balance_rub, ts}`."""
+    payload = payload or {}
+    dep = _deposits_by_id.get(deposit_id)
+    if not dep:
+        raise HTTPException(status_code=404, detail=f"вклад {deposit_id} не найден")
+    if dep["status"] != "active":
+        raise HTTPException(status_code=400, detail=f"вклад уже {dep['status']}")
+    client = _clients_by_id.get(dep["client_id"])
+    if not client:
+        raise HTTPException(status_code=404, detail="клиент не найден")
+
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+    today = datetime.now().date().isoformat()
+    principal = int(dep["amount_rub"])
+    # Полные проценты за весь срок.
+    full_interest = int(round(
+        principal * (dep["rate_pct"] / 100.0) * (dep["term_months"] / 12.0)))
+    matured = today >= dep["matures_at"]
+    early_requested = bool(payload.get("early"))
+
+    if matured and not early_requested:
+        interest = full_interest
+        kind = "matured"
+    elif dep["early_withdrawal"]:
+        # Гибкий вклад — досрочное снятие без потери процентов.
+        interest = full_interest
+        kind = "flex"
+    else:
+        # Срочный вклад досрочно — сниженные проценты (треть от начисленных).
+        interest = int(round(full_interest * 0.3))
+        kind = "early"
+
+    returned = principal + interest
+    client["balance_rub"] += returned
+    dep["status"] = "closed"
+    dep["closed_at"] = now_iso
+    dep["returned_rub"] = returned
+
+    tx = {
+        "id": f"t-{100000 + len(_transactions) + 1:08d}",
+        "client_id": dep["client_id"], "type": "deposit_withdraw",
+        "amount_rub": returned, "ts": now_iso, "counterparty": dep["product"],
+        "cashback_rub": 0,
+    }
+    _transactions.append(tx)
+
+    return {
+        "status": "ok",
+        "client_id": dep["client_id"],
+        "deposit_id": deposit_id,
+        "kind": kind,
+        "principal_rub": principal,
+        "interest_rub": interest,
+        "returned_rub": returned,
+        "new_balance_rub": client["balance_rub"],
+        "ts": now_iso,
     }
 
 
