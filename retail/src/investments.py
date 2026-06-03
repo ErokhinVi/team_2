@@ -111,7 +111,18 @@ async def investments_info(client_id: str) -> dict:
 
 @router.post("/api/invest")
 async def invest(payload: dict) -> dict:
-    """Place an order, gated by the CIB regulatory suitability check."""
+    """Place an investment order end to end.
+
+    Flow (per Gert's investment rulebook):
+      1. CIB POST /investment/order-plan turns (client_id, product_id, amount_rub)
+         into a ready-to-execute order {side, symbol, qty, price_rub, est_cost_rub},
+         running suitability + the trading rules in one shot.
+      2. If suitable + executable, we POST the order to backend's real execution
+         endpoint POST /clients/{client_id}/orders.
+      3. If CIB is unreachable, fall back to the standalone suitability check;
+         if backend is unreachable, return a simulated confirmation so the screen
+         still works for demos.
+    """
     client_id = payload.get("client_id")
     instrument_id = payload.get("instrument_id")
     amount = payload.get("amount_rub", 0)
@@ -122,7 +133,64 @@ async def invest(payload: dict) -> dict:
             detail="client_id, instrument_id and positive amount_rub required",
         )
 
-    # Step 1 — suitability check
+    # Step 1 — ask CIB to plan the order (suitability + symbol + qty + price)
+    plan = await try_post(
+        CIB_URL, "/investment/order-plan",
+        {"client_id": client_id, "product_id": instrument_id, "amount_rub": amount},
+        timeout=5.0,
+    )
+
+    if plan and plan.get("suitable") is False:
+        return {
+            "status": "unsuitable",
+            "client_id": client_id,
+            "instrument_id": instrument_id,
+            "instrument_name": plan.get("product_name", instrument_id),
+            "amount_rub": amount,
+            "reasons": plan.get("reasons", []),
+            "investor_profile": plan.get("investor_profile", ""),
+            "max_risk_level": plan.get("max_risk_level"),
+            "product_risk_level": plan.get("product_risk_level"),
+            "suitable_alternatives": plan.get("suitable_alternatives", []),
+            "source": "cib",
+        }
+
+    if plan and plan.get("executable") and plan.get("order"):
+        order = plan["order"]
+        # Step 2 — execute on backend's real endpoint
+        execution = await try_post(
+            BACKEND_URL, f"/clients/{client_id}/orders",
+            {"side": order["side"], "symbol": order["symbol"], "qty": order["qty"]},
+        )
+        if execution:
+            order_obj = execution.get("order", {})
+            return {
+                "status": "ok",
+                "client_id": client_id,
+                "instrument_id": instrument_id,
+                "instrument_name": order.get("symbol", instrument_id),
+                "amount_rub": amount,
+                "qty": order_obj.get("qty", order.get("qty")),
+                "price_rub": order_obj.get("price_rub", order.get("price_rub")),
+                "gross_rub": order_obj.get("gross_rub", order.get("est_cost_rub")),
+                "new_balance_rub": execution.get("new_balance_rub"),
+                "source": "cib+backend",
+            }
+        # Plan succeeded but backend wouldn't execute — surface the plan as a preview
+        return {
+            "status": "ok",
+            "client_id": client_id,
+            "instrument_id": instrument_id,
+            "instrument_name": order.get("symbol", instrument_id),
+            "amount_rub": amount,
+            "qty": order.get("qty"),
+            "price_rub": order.get("price_rub"),
+            "projected_value_1y_rub": order.get("est_cost_rub"),
+            "message": "Order planned but not yet executed",
+            "source": "cib-plan",
+        }
+
+    # Step 3a — CIB plan unavailable; fall back to plain suitability check
     suit = await try_post(
         CIB_URL, "/investment/suitability",
         {"client_id": client_id, "product_id": instrument_id, "amount_rub": amount},
@@ -143,12 +211,7 @@ async def invest(payload: dict) -> dict:
             "source": "cib",
         }
 
-    # Step 2 — place the order on backend
-    backend = await try_post(BACKEND_URL, "/portfolio/buy", payload)
-    if backend:
-        return backend
-
-    # Fallback — simulated order with projected value
+    # Step 3b — simulated confirmation only when both neighbours are unreachable
     expected_return = 10.0
     name = instrument_id
     products = await try_get(CIB_URL, "/products") or {}

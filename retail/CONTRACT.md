@@ -89,8 +89,8 @@ amount_rub, max_amount_rub, reason, source}`.
 
 ## Кого я зову у соседей
 
-- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available), `GET /portfolio/{client_id}` (when available), `POST /portfolio/buy` (when available)
-- cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`), `POST /card/activate` (payload: `{client_id, product_id: "card-debit-cashback"}`, returns personalised cashback rates by segment), `POST /card/credit-limit` (payload: `{client_id, product_id: "card-credit"}`, returns personalised credit limit or secured card fallback), `POST /deposit/open` (payload: `{client_id, product_id, amount_rub}`, returns rate, maturity, projected interest), `POST /investment/recommend` (payload: `{client_id}`, returns investor profile + suitable products), `POST /investment/suitability` (payload: `{client_id, product_id, amount_rub}`, returns suitability verdict + alternatives)
+- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell)
+- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan` (suitability + symbol + qty + price for an `amount_rub`), `POST /investment/order-check` (validates trade, returns commission)
 
 ## Где работает блок локально
 

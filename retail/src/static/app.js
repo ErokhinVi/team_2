@@ -18,6 +18,8 @@
         icon: ICON('<rect x="3" y="4.5" width="18" height="15" rx="2.5"/><circle cx="12" cy="12" r="3.3"/><path d="M12 8.7V6.5M12 17.5v-2.2"/>') },
       { key: "invest",     i18n: "invest_tab",
         icon: ICON('<path d="M3 17l6-6 4 4 7-7"/><path d="M17 8h4v4"/>') },
+      { key: "brokerage",  i18n: "brokerage_tab",
+        icon: ICON('<path d="M4 20V11M9 20V5M14 20V14M19 20V8"/>') },
       { key: "loans",      i18n: "loans_tab",
         icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>') },
     ];
@@ -40,6 +42,9 @@
         no_ops:           "Операций пока нет",
         load_fail:        "Не удалось загрузить операции",
         fill_fields:      "введи получателя и сумму",
+        insufficient_funds: "Недостаточно средств на счёте",
+        amount_below_min: "Сумма меньше минимальной",
+        overpay_debt:     "Сумма больше задолженности",
         sent:             "Отправлено",
         recipient:        "получатель",
         bank_client:      "клиент банка",
@@ -118,6 +123,26 @@
         invest_fill:      "Укажите сумму инвестиции",
         invest_success:   "Заявка принята!",
         projected_1y:     "Прогноз через год",
+        brokerage_tab:    "Брокер",
+        loading_brokerage: "Загрузка брокеража...",
+        brokerage_error:  "Не удалось загрузить брокеридж",
+        trading_cash:     "Свободные средства",
+        positions_value:  "Стоимость позиций",
+        your_positions:   "Ваши позиции",
+        no_positions:     "У вас пока нет позиций",
+        market:           "Рынок",
+        no_securities:    "Бумаги недоступны",
+        trade_buy:        "Купить",
+        trade_sell:       "Продать",
+        quantity:         "Количество",
+        est_total:        "Примерно",
+        commission_label: "Комиссия",
+        order_done:       "Заявка исполнена",
+        not_enough_units: "Недостаточно бумаг для продажи",
+        qty_required:     "Укажите количество",
+        units:            "шт.",
+        tap_to_trade:     "Нажмите для сделки",
+        order_rejected:   "Заявка отклонена",
         invested:         "Вложено",
         investor_profile_label: "Инвестиционный профиль",
         not_suitable:     "Не подходит вашему профилю",
@@ -160,6 +185,9 @@
         no_ops:           "No transactions yet",
         load_fail:        "Could not load transactions",
         fill_fields:      "enter recipient and amount",
+        insufficient_funds: "Insufficient funds on your account",
+        amount_below_min: "Amount is below the minimum",
+        overpay_debt:     "Amount exceeds the outstanding balance",
         sent:             "Sent",
         recipient:        "recipient",
         bank_client:      "bank client",
@@ -238,6 +266,26 @@
         invest_fill:      "Please enter an investment amount",
         invest_success:   "Order accepted!",
         projected_1y:     "1-year projection",
+        brokerage_tab:    "Broker",
+        loading_brokerage: "Loading brokerage...",
+        brokerage_error:  "Could not load brokerage",
+        trading_cash:     "Available cash",
+        positions_value:  "Positions value",
+        your_positions:   "Your positions",
+        no_positions:     "You have no positions yet",
+        market:           "Market",
+        no_securities:    "No securities available",
+        trade_buy:        "Buy",
+        trade_sell:       "Sell",
+        quantity:         "Quantity",
+        est_total:        "Approx.",
+        commission_label: "Commission",
+        order_done:       "Order executed",
+        not_enough_units: "Not enough units to sell",
+        qty_required:     "Please enter a quantity",
+        units:            "units",
+        tap_to_trade:     "Tap to trade",
+        order_rejected:   "Order rejected",
         invested:         "Invested",
         investor_profile_label: "Investor profile",
         not_suitable:     "Not suitable for your profile",
@@ -286,6 +334,7 @@
         loadCreditCard(opt.value);
         loadSavings(opt.value);
         loadInvest(opt.value);
+        loadBrokerage(opt.value);
       }
       if (productsData.length) renderProducts();
     }
@@ -309,6 +358,7 @@
     const ccContainer = document.getElementById("cc-container");
     const savingsContainer = document.getElementById("savings-container");
     const investContainer = document.getElementById("invest-container");
+    const brokerageContainer = document.getElementById("brokerage-container");
 
     // ---- tabs (built from TAB_DEFS) ----
     document.querySelector(".tabs").innerHTML = TAB_DEFS.map((tdef, i) =>
@@ -328,6 +378,7 @@
         if (opt && btn.dataset.tab === "creditcard") loadCreditCard(opt.value);
         if (opt && btn.dataset.tab === "savings") loadSavings(opt.value);
         if (opt && btn.dataset.tab === "invest") loadInvest(opt.value);
+        if (opt && btn.dataset.tab === "brokerage") loadBrokerage(opt.value);
       });
     });
 
@@ -356,6 +407,7 @@
       loadCreditCard(opt.value);
       loadSavings(opt.value);
       loadInvest(opt.value);
+      loadBrokerage(opt.value);
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
@@ -395,6 +447,13 @@
       if (opt) opt.dataset.balance = newAmount;
     }
 
+    // Money a customer actually has available right now (client-side guard).
+    // The authoritative check still belongs to the backend, which must debit.
+    function availableBalance() {
+      const opt = sel.selectedOptions[0];
+      return opt ? (+opt.dataset.balance || 0) : 0;
+    }
+
     // ---- transfer form ----
     const transferForm = document.getElementById("transfer-form");
     transferForm.addEventListener("submit", async (ev) => {
@@ -407,6 +466,10 @@
       const amount = +data.get("amount");
       if (!to || amount <= 0) {
         transferResult.innerHTML = `<div class="alert error">${t("fill_fields")}</div>`;
+        return;
+      }
+      if (amount > availableBalance()) {
+        transferResult.innerHTML = `<div class="alert error">${t("insufficient_funds")}</div>`;
         return;
       }
       const payload = { from_client_id: opt.value, to, amount_rub: amount };
@@ -628,6 +691,14 @@
             payResult.innerHTML = `<div class="alert error">${t("cc_fill_amount")}</div>`;
             return;
           }
+          if (amount > (d.balance_owed_rub || 0)) {
+            payResult.innerHTML = `<div class="alert error">${t("overpay_debt")}</div>`;
+            return;
+          }
+          if (amount > availableBalance()) {
+            payResult.innerHTML = `<div class="alert error">${t("insufficient_funds")}</div>`;
+            return;
+          }
           try {
             const r = await fetch("/api/credit-card-payment", {
               method: "POST", headers: {"Content-Type": "application/json"},
@@ -755,6 +826,10 @@
             depResult.innerHTML = `<div class="alert error">${t("deposit_fill")}</div>`;
             return;
           }
+          if (amount > availableBalance()) {
+            depResult.innerHTML = `<div class="alert error">${t("insufficient_funds")}</div>`;
+            return;
+          }
           if (!selectedDepositId) return;
           try {
             const r = await fetch("/api/deposit-open", {
@@ -788,6 +863,201 @@
             }
           } catch(e) {
             depResult.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+          }
+        });
+      }
+    }
+
+    // ---- Brokerage ----
+    let brokerageData = null;
+    let selectedSecId = null;
+    let selectedSide = "buy";
+
+    async function loadBrokerage(clientId) {
+      try {
+        const r = await fetch(`/api/brokerage/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        brokerageData = await r.json();
+        renderBrokerage(brokerageData);
+      } catch (e) {
+        brokerageContainer.innerHTML = `<div class="empty">${t("brokerage_error")}</div>`;
+      }
+    }
+
+    function ownedQty(secId) {
+      const p = (brokerageData?.positions || []).find(x => x.security_id === secId);
+      return p ? p.quantity : 0;
+    }
+
+    function updateTradeEstimate() {
+      const est = document.getElementById("trade-est");
+      if (!est) return;
+      const sec = (brokerageData?.securities || []).find(s => s.id === selectedSecId);
+      const qty = +(document.querySelector('#brokerage-container input[name="qty"]')?.value || 0);
+      if (!sec || !qty) { est.textContent = ""; return; }
+      est.textContent = `${t("est_total")}: ${fmt.format(Math.round(sec.price_rub * qty))} ₽`;
+    }
+
+    function renderBrokerage(d) {
+      const secs = d.securities || [];
+      const positions = d.positions || [];
+
+      const pl = d.total_pl_rub || 0;
+      const plDir = pl > 0 ? "up" : pl < 0 ? "down" : "flat";
+      const plSign = pl > 0 ? "+" : "";
+      const heroHtml = `
+        <div class="brokerage-hero">
+          <div class="bh-label">${t("trading_cash")}</div>
+          <div class="bh-value">${fmt.format(d.cash_rub)} ₽</div>
+          <div class="bh-sub">
+            ${t("positions_value")}: ${fmt.format(d.total_positions_value_rub)} ₽
+            <span class="bh-pl ${plDir}">${plSign}${fmt.format(pl)} ₽</span>
+          </div>
+        </div>`;
+
+      let posHtml = "";
+      if (positions.length) {
+        posHtml = `<div class="section-title">${t("your_positions")}</div>` +
+          positions.map(p => {
+            const dir = (p.pl_rub || 0) >= 0 ? "up" : "down";
+            const sign = (p.pl_rub || 0) >= 0 ? "+" : "";
+            return `<div class="holding-row">
+              <div>
+                <div class="hr-name">${p.name}</div>
+                <div class="hr-sub">${p.quantity} ${t("units")} · ${fmt.format(p.price_rub)} ₽</div>
+              </div>
+              <div>
+                <div class="hr-value">${fmt.format(p.current_value_rub)} ₽</div>
+                <div class="hr-gain ${dir}">${sign}${fmt.format(p.pl_rub)} ₽</div>
+              </div>
+            </div>`;
+          }).join("");
+      }
+
+      let marketHtml = "";
+      if (secs.length) {
+        marketHtml = `<div class="section-title" style="margin-top:18px">${t("market")}</div>` +
+          secs.map(s => {
+            const selCls = s.id === selectedSecId ? " selected" : "";
+            return `<div class="quote-row${selCls}" data-sec-id="${s.id}">
+              <div>
+                <div class="q-name">${s.name}</div>
+                <div class="q-sub">${t("tap_to_trade")} →</div>
+              </div>
+              <div class="q-price">${fmt.format(s.price_rub)} ₽</div>
+            </div>`;
+          }).join("");
+      } else {
+        marketHtml = `<div class="empty">${t("no_securities")}</div>`;
+      }
+
+      const ticket = secs.length ? `
+        <div id="trade-ticket" class="invest-panel" style="display:${selectedSecId ? 'block' : 'none'}">
+          <div class="invest-panel-head">
+            <span class="section-title" style="margin:0">${t("market")}</span>
+            <span id="trade-sec" class="invest-panel-sel"></span>
+          </div>
+          <div class="side-toggle">
+            <button type="button" class="side-btn buy active" data-side="buy">${t("trade_buy")}</button>
+            <button type="button" class="side-btn sell" data-side="sell">${t("trade_sell")}</button>
+          </div>
+          <form id="trade-form" autocomplete="off">
+            <div class="form-row">
+              <label>${t("quantity")}</label>
+              <input name="qty" type="number" min="1" step="1" placeholder="10" />
+            </div>
+            <div id="trade-est" class="trade-est"></div>
+            <button class="btn primary" type="submit" id="trade-submit">${t("trade_buy")}</button>
+          </form>
+          <div id="trade-result"></div>
+        </div>` : "";
+
+      brokerageContainer.innerHTML = heroHtml + posHtml + marketHtml + ticket;
+
+      // Select a security -> reveal ticket
+      brokerageContainer.querySelectorAll(".quote-row").forEach(row => {
+        row.addEventListener("click", () => {
+          selectedSecId = row.dataset.secId;
+          brokerageContainer.querySelectorAll(".quote-row").forEach(x => x.classList.remove("selected"));
+          row.classList.add("selected");
+          const sec = secs.find(s => s.id === selectedSecId);
+          const secEl = document.getElementById("trade-sec");
+          if (secEl && sec) secEl.textContent = `${sec.name} · ${fmt.format(sec.price_rub)} ₽`;
+          const ticketEl = document.getElementById("trade-ticket");
+          if (ticketEl) {
+            ticketEl.style.display = "block";
+            ticketEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          }
+          updateTradeEstimate();
+        });
+      });
+
+      // Buy/Sell toggle
+      const submitBtn = document.getElementById("trade-submit");
+      brokerageContainer.querySelectorAll(".side-btn").forEach(btn => {
+        btn.addEventListener("click", () => {
+          selectedSide = btn.dataset.side;
+          brokerageContainer.querySelectorAll(".side-btn").forEach(b => b.classList.remove("active"));
+          btn.classList.add("active");
+          if (submitBtn) submitBtn.textContent = selectedSide === "buy" ? t("trade_buy") : t("trade_sell");
+        });
+      });
+
+      const qtyInput = brokerageContainer.querySelector('#trade-form input[name="qty"]');
+      if (qtyInput) qtyInput.addEventListener("input", updateTradeEstimate);
+
+      const tradeForm = document.getElementById("trade-form");
+      if (tradeForm) {
+        tradeForm.addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          const tr = document.getElementById("trade-result");
+          tr.innerHTML = "";
+          const qty = +new FormData(ev.target).get("qty");
+          if (!qty || qty <= 0) {
+            tr.innerHTML = `<div class="alert error">${t("qty_required")}</div>`;
+            return;
+          }
+          if (!selectedSecId) return;
+          const sec = secs.find(s => s.id === selectedSecId);
+          const notional = (sec ? sec.price_rub : 0) * qty;
+          if (selectedSide === "buy" && notional > availableBalance()) {
+            tr.innerHTML = `<div class="alert error">${t("insufficient_funds")}</div>`;
+            return;
+          }
+          if (selectedSide === "sell" && qty > ownedQty(selectedSecId)) {
+            tr.innerHTML = `<div class="alert error">${t("not_enough_units")}</div>`;
+            return;
+          }
+          try {
+            const picked = (secs || []).find(s => s.id === selectedSecId);
+            const r = await fetch("/api/brokerage/order", {
+              method: "POST", headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({
+                client_id: d.client_id,
+                security_id: selectedSecId,
+                product_id: picked ? picked.product_id : undefined,
+                side: selectedSide,
+                quantity: qty,
+              }),
+            });
+            const res = await r.json();
+            if (r.ok && res.status === "ok") {
+              const sideWord = res.side === "buy" ? t("trade_buy") : t("trade_sell");
+              tr.innerHTML = `<div class="alert ok">
+                ${t("order_done")}: ${sideWord} ${res.quantity} ${t("units")} ${res.security_name}<br/>
+                ${fmt.format(res.price_rub)} ₽ × ${res.quantity} · ${t("commission_label")}: ${fmt.format(res.commission_rub)} ₽
+                = ${fmt.format(res.total_rub)} ₽
+              </div>`;
+              tradeForm.reset();
+              setTimeout(() => loadBrokerage(d.client_id), 500);
+            } else if (r.ok && res.status === "rejected") {
+              const why = res.reason === "insufficient_funds" ? t("insufficient_funds") : (res.reason || t("order_rejected"));
+              tr.innerHTML = `<div class="alert error">${t("order_rejected")}: ${why}</div>`;
+            } else {
+              tr.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+            }
+          } catch (e) {
+            tr.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
           }
         });
       }
@@ -941,6 +1211,15 @@
             return;
           }
           if (!selectedInstrumentId) return;
+          const picked = (d.instruments || []).find(x => x.id === selectedInstrumentId);
+          if (picked && picked.min_investment_rub && amount < picked.min_investment_rub) {
+            invResult.innerHTML = `<div class="alert error">${t("amount_below_min")}: ${fmt.format(picked.min_investment_rub)} ₽</div>`;
+            return;
+          }
+          if (amount > availableBalance()) {
+            invResult.innerHTML = `<div class="alert error">${t("insufficient_funds")}</div>`;
+            return;
+          }
           try {
             const r = await fetch("/api/invest", {
               method: "POST", headers: {"Content-Type": "application/json"},

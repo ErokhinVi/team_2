@@ -135,21 +135,24 @@
       z-index: 50;
     }
     .tabs button {
-      flex: 1;
+      flex: 1; min-width: 0;
       display: flex; flex-direction: column; align-items: center; gap: 3px;
-      padding: 6px 2px;
-      background: transparent; border: 0; border-radius: 14px;
-      font-family: inherit; font-size: 10px; font-weight: 600;
+      padding: 6px 1px;
+      background: transparent; border: 0; border-radius: 12px;
+      font-family: inherit; font-weight: 600;
       color: var(--muted);
       cursor: pointer; position: relative;
       transition: color 140ms, transform 140ms;
     }
-    .tab-ic { display: flex; align-items: center; justify-content: center; height: 24px; }
+    .tab-ic { display: flex; align-items: center; justify-content: center; height: 23px; }
     .tab-ic svg {
-      width: 23px; height: 23px; display: block;
+      width: 22px; height: 22px; display: block;
       transition: transform 160ms ease, stroke-width 160ms ease;
     }
-    .tab-lb { font-size: 10px; font-weight: 600; line-height: 1; }
+    .tab-lb {
+      font-size: 9px; font-weight: 600; line-height: 1;
+      max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .tabs button.active { color: var(--text); }
     .tabs button.active .tab-ic svg { transform: translateY(-1px) scale(1.08); }
     .tabs button:active .tab-ic svg { transform: scale(0.9); }
@@ -568,4 +571,46 @@
     .holding-row .hr-gain { font-size: 11px; text-align: right; margin-top: 2px; }
     .holding-row .hr-gain.up { color: var(--good); }
     .holding-row .hr-gain.down { color: var(--bad); }
+
+    /* ---- Brokerage ---- */
+    .brokerage-hero {
+      background: linear-gradient(135deg, #10303a 0%, #1c5566 55%, #0e2a33 100%);
+      border-radius: 20px; padding: 24px; color: #eaf6f8;
+      margin-bottom: 18px; text-align: center;
+      box-shadow: 0 14px 32px rgba(16,48,58,0.32);
+    }
+    .brokerage-hero .bh-label {
+      font-size: 11px; opacity: 0.6;
+      text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;
+    }
+    .brokerage-hero .bh-value { font-size: 30px; font-weight: 700; margin: 4px 0; }
+    .brokerage-hero .bh-sub { font-size: 13px; opacity: 0.9; }
+    .brokerage-hero .bh-pl { font-weight: 700; margin-left: 8px; }
+    .brokerage-hero .bh-pl.up   { color: #7CF2A8; }
+    .brokerage-hero .bh-pl.down { color: #FF9B8A; }
+    .brokerage-hero .bh-pl.flat { color: rgba(234,246,248,0.7); }
+
+    .quote-row {
+      display: flex; justify-content: space-between; align-items: center;
+      background: var(--surface); border-radius: 14px;
+      padding: 14px 16px; margin-bottom: 10px; cursor: pointer;
+      box-shadow: 0 6px 18px rgba(40,34,20,0.06);
+      transition: transform 140ms, box-shadow 140ms;
+    }
+    .quote-row:hover { transform: translateY(-1px); }
+    .quote-row.selected { box-shadow: 0 0 0 2px var(--raiff-deep), 0 10px 24px rgba(255,214,0,0.25); }
+    .quote-row .q-name { font-size: 14px; font-weight: 600; }
+    .quote-row .q-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .quote-row .q-price { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+    .side-toggle { display: flex; gap: 8px; margin-bottom: 14px; }
+    .side-btn {
+      flex: 1; padding: 11px; border: 1px solid var(--rule);
+      background: var(--bg); color: var(--text-2);
+      border-radius: 12px; font-family: inherit; font-size: 14px; font-weight: 600;
+      cursor: pointer; transition: all 140ms;
+    }
+    .side-btn.buy.active  { background: var(--good); color: #fff; border-color: var(--good); }
+    .side-btn.sell.active { background: var(--bad);  color: #fff; border-color: var(--bad); }
+    .trade-est { font-size: 13px; font-weight: 600; color: var(--text-2); margin: 4px 0 12px; min-height: 16px; }
   
