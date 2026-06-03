@@ -28,7 +28,8 @@ PRODUCTS = [
 ]
 
 # Decision thresholds
-MAX_RISK_SCORE = 0.55
+MAX_RISK_SCORE_STANDARD = 0.55   # for larger amounts (> 6x monthly income)
+MAX_RISK_SCORE_SMALL = 0.65      # for smaller amounts (<= 6x monthly income)
 MIN_INCOME_RUB = 30_000
 
 app = FastAPI(title="cib — корпоратив и бизнес-логика", version="1.0.0")
@@ -37,6 +38,7 @@ app = FastAPI(title="cib — корпоратив и бизнес-логика",
 class DecideRequest(BaseModel):
     client_id: str
     product_id: str
+    amount_rub: float | None = None
 
 
 @app.get("/health")
@@ -70,6 +72,12 @@ async def credit_decide(req: DecideRequest) -> dict:
     if product["kind"] != "credit":
         raise HTTPException(status_code=400, detail="Product is not a credit product")
 
+    # Determine applicable risk threshold based on amount vs income
+    income = customer.get("income_rub", 0)
+    small_loan_ceiling = income * 6  # 6 monthly salaries = "small"
+    is_small_amount = req.amount_rub is not None and req.amount_rub <= small_loan_ceiling
+    max_risk = MAX_RISK_SCORE_SMALL if is_small_amount else MAX_RISK_SCORE_STANDARD
+
     # Decision rules
     reasons: list[str] = []
     approved = True
@@ -78,7 +86,7 @@ async def credit_decide(req: DecideRequest) -> dict:
         approved = False
         reasons.append("overdue payment history")
 
-    if customer.get("risk_score", 1.0) > MAX_RISK_SCORE:
+    if customer.get("risk_score", 1.0) > max_risk:
         approved = False
         reasons.append(f"risk score too high ({customer['risk_score']:.2f})")
 
