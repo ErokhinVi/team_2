@@ -969,6 +969,13 @@ async def list_client_deposits(client_id: str) -> dict:
 
 @app.get("/deposits/{deposit_id}")
 async def get_deposit(deposit_id: str) -> dict:
+    """Один вклад по его id (`d-...`). Если передан id клиента (`c-...`) —
+    отдаём список его вкладов (это удобно retail, который зовёт
+    `GET /deposits/{client_id}`)."""
+    if deposit_id in _clients_by_id:
+        deps = list(reversed(_deposits_by_client.get(deposit_id, [])))
+        return {"client_id": deposit_id, "total": len(deps),
+                "items": [_deposit_view(d) for d in deps]}
     dep = _deposits_by_id.get(deposit_id)
     if not dep:
         raise HTTPException(status_code=404, detail=f"вклад {deposit_id} не найден")
@@ -1150,11 +1157,40 @@ async def investments_summary() -> dict:
 
 
 @app.get("/clients/{client_id}/portfolio")
+@app.get("/portfolio/{client_id}")
 async def get_portfolio(client_id: str) -> dict:
-    """Инвестиционный портфель клиента: позиции, текущая стоимость, прибыль/убыток."""
+    """Инвестиционный портфель клиента: позиции, текущая стоимость, прибыль/убыток.
+    Доступен и как `/portfolio/{client_id}` — так его зовёт retail."""
     if client_id not in _clients_by_id:
         raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
     return _portfolio_view(client_id)
+
+
+@app.get("/credit-card/{client_id}")
+async def client_credit_card_summary(client_id: str) -> dict:
+    """Сводка по кредитной карте клиента (для retail, который зовёт
+    `GET /credit-card/{client_id}`). Берём основную (первую активную) карту.
+    Возвращает `{client_id, has_card, card_id, credit_limit_rub, balance_owed_rub,
+    available_rub, min_payment_rub, status}`. `404`, если клиента нет."""
+    if client_id not in _clients_by_id:
+        raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
+    cards = _cards_by_client.get(client_id, [])
+    card = next((c for c in cards if c["status"] == "active"), cards[0] if cards else None)
+    if not card:
+        return {"client_id": client_id, "has_card": False, "card_id": None,
+                "credit_limit_rub": 0, "balance_owed_rub": 0, "available_rub": 0,
+                "min_payment_rub": 0, "status": "none"}
+    owed = int(card["balance_owed_rub"])
+    return {
+        "client_id": client_id,
+        "has_card": True,
+        "card_id": card["card_id"],
+        "credit_limit_rub": int(card["credit_limit_rub"]),
+        "balance_owed_rub": owed,
+        "available_rub": int(card["credit_limit_rub"]) - owed,
+        "min_payment_rub": int(round(owed * CREDIT_CARD_MIN_PAYMENT_RATE)),
+        "status": card["status"],
+    }
 
 
 def _book_revenue(source: str, amount: int, client_id: str, note: str,
