@@ -7,7 +7,11 @@
 """
 from __future__ import annotations
 
+import json
 import os
+import uuid
+from collections import deque
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import FastAPI, HTTPException
@@ -19,6 +23,32 @@ from src.llm import LLMError, ask_llm
 TEAM_NAME = os.environ.get("TEAM_NAME", "team")
 COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8003").rstrip("/")
+
+# Policy version stamped on every decision for regulatory traceability — bump
+# when underwriting rules or thresholds change.
+POLICY_VERSION = "2026-06-03.1"
+
+# Decision audit trail: each credit decision is recorded with its inputs and the
+# rules that fired, so any decision can be reconstructed and defended later.
+# Kept in a capped in-memory buffer and also emitted to stdout (captured in the
+# platform logs) so it survives beyond the buffer.
+DECISION_LOG: deque[dict] = deque(maxlen=2000)
+
+
+def _audit(endpoint: str, client_id: str, decision: dict) -> str:
+    """Record a credit decision to the audit trail. Returns the decision id."""
+    entry = {
+        "decision_id": f"dec-{uuid.uuid4().hex[:12]}",
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "policy_version": POLICY_VERSION,
+        "endpoint": endpoint,
+        "client_id": client_id,
+        **decision,
+    }
+    DECISION_LOG.append(entry)
+    # Structured line to stdout for durable, external log capture.
+    print("AUDIT " + json.dumps(entry, ensure_ascii=False), flush=True)
+    return entry["decision_id"]
 
 # Cashback rates by customer segment
 CASHBACK_RATES: dict[str, dict[str, float]] = {
@@ -405,6 +435,17 @@ async def credit_decide(req: DecideRequest) -> dict:
         "customer_name": customer.get("name"),
     }
     result.update(disclosure)
+    result["decision_id"] = _audit("/credit/decide", req.client_id, {
+        "product_id": req.product_id,
+        "amount_rub": req.amount_rub,
+        "term_months": req.term_months,
+        "risk_score": risk,
+        "income_rub": income,
+        "approved": approved,
+        "rate_pct": result["rate_pct"],
+        "dsti_pct": disclosure.get("dsti_pct"),
+        "reasons": reasons,
+    })
     return result
 
 
@@ -480,10 +521,23 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
                        else "We are unable to approve this mortgage at this time.")
 
     eff_apr = ((1 + product["rate_pct"] / 100 / 12) ** 12 - 1) * 100
+    decision_id = _audit("/mortgage/decide", req.client_id, {
+        "product_id": "mortgage",
+        "property_price_rub": req.property_price_rub,
+        "loan_amount_rub": round(loan_rub, 2),
+        "ltv_pct": round(ltv_pct, 1),
+        "term_years": term_years,
+        "risk_score": risk,
+        "income_rub": income,
+        "approved": approved,
+        "dsti_pct": round(total_service / income * 100, 1) if income > 0 else None,
+        "reasons": reasons,
+    })
     return {
         "client_id": req.client_id,
         "product_id": "mortgage",
         "approved": approved,
+        "decision_id": decision_id,
         "recorded": recorded,
         "property_price_rub": req.property_price_rub,
         "down_payment_rub": req.down_payment_rub,
@@ -533,6 +587,10 @@ async def credit_refinance(req: RefinanceRequest) -> dict:
         reasons.append(f"income below minimum ({income} < {MIN_INCOME_RUB})")
 
     if reasons:
+        _audit("/credit/refinance", req.client_id, {
+            "product_id": "credit-refinance", "balance_rub": req.current_balance_rub,
+            "risk_score": risk, "income_rub": income, "approved": False, "reasons": reasons,
+        })
         return {
             "client_id": req.client_id, "product_id": "credit-refinance",
             "approved": False, "beneficial": False, "reasons": reasons,
@@ -546,10 +604,16 @@ async def credit_refinance(req: RefinanceRequest) -> dict:
     total_saving = monthly_saving * req.term_months
     beneficial = new_rate < req.current_rate_pct and monthly_saving > 0
 
+    decision_id = _audit("/credit/refinance", req.client_id, {
+        "product_id": "credit-refinance", "balance_rub": req.current_balance_rub,
+        "risk_score": risk, "income_rub": income, "approved": True,
+        "new_rate_pct": new_rate, "beneficial": beneficial, "reasons": [],
+    })
     return {
         "client_id": req.client_id,
         "product_id": "credit-refinance",
         "approved": True,
+        "decision_id": decision_id,
         "beneficial": beneficial,
         "current_rate_pct": req.current_rate_pct,
         "new_rate_pct": new_rate,
@@ -1466,6 +1530,17 @@ async def referral_validate(req: ReferralValidateRequest) -> dict:
             "referee_bonus_rub": REFERRAL_REFEREE_BONUS,
         },
     }
+
+
+@app.get("/audit/decisions")
+async def audit_decisions(client_id: str | None = None, limit: int = 50) -> dict:
+    """Retrieve recent credit decisions for compliance review. Optionally filter
+    by client_id. Newest first."""
+    items = list(DECISION_LOG)
+    if client_id:
+        items = [e for e in items if e.get("client_id") == client_id]
+    items = list(reversed(items))[:max(1, min(limit, 500))]
+    return {"policy_version": POLICY_VERSION, "total": len(items), "items": items}
 
 
 @app.get("/", response_class=HTMLResponse)

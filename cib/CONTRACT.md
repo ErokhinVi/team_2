@@ -64,6 +64,10 @@ The binding decision basis is always the deterministic `reasons` list (`binding_
 
 HTTP 404 if client or product is not found. HTTP 400 if product is not a credit product.
 
+### GET /audit/decisions
+
+Decision audit trail for compliance review. Every credit decision (loan, mortgage, refinance) is recorded with its inputs, the risk score, the binding `reasons`, the outcome and a `policy_version`, each with a unique `decision_id` (also returned on the decision responses). Params: `client_id` (optional filter), `limit` (default 50). Returns `{policy_version, total, items: [...]}`, newest first. Records are also emitted to the service logs for durable capture.
+
 ### POST /credit/refinance
 
 Refinancing offer — takes over the customer's existing debt at a lower, risk-based rate and shows the saving. Request body: `{ "client_id": "<string>", "current_balance_rub": <number>, "current_rate_pct": <number>, "term_months": <int, default 36> }`.
