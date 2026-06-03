@@ -612,7 +612,12 @@
             ${c.name}
           </option>`
         ).join("");
-        if (items.length) onPickClient();
+        if (items.length) {
+          // Pick a random customer on each refresh so demos don't always land
+          // on the same person.
+          sel.selectedIndex = Math.floor(Math.random() * items.length);
+          onPickClient();
+        }
       } catch(e) { console.error(e); }
     }
 
