@@ -222,6 +222,8 @@ Returns confirmation with rate, maturity date, and projected interest earned:
 }
 ```
 
+The rate is boosted, risk-free, by two loyalty bonuses: an **amount bonus** (bigger balances earn up to +1.0%) and a **relationship bonus** by loyalty tier (up to +0.75%), capped at +1.5% total. The response carries `rate_pct` (effective), `base_rate_pct`, `amount_bonus_pct`, `loyalty_bonus_pct` and `loyalty_tier`.
+
 For `deposit-flex`, `term_months` and `matures_at` are null; `early_withdrawal` is true.
 HTTP 400 if amount is below the product minimum **or** the customer has insufficient funds. HTTP 404 if client unknown.
 
@@ -271,7 +273,11 @@ Currently supports `"card-debit-cashback"`. Returns personalised cashback rates 
 }
 ```
 
-Rates by segment — mass: 2/1.5/0.5%, mass_affluent: 3/2/1%, premium: 5/3/1.5%, private: 7/5/2%.
+Rates by segment — mass: 2/1.5/0.5%, mass_affluent: 3/2/1%, premium: 5/3/1.5%, private: 7/5/2%. Multi-product customers get a loyalty **cashback uplift** (silver +0.5%, gold +0.75%, platinum +1.0%, capped at 7%); the response carries `loyalty_tier` and `cashback_uplift_pct`.
+
+### GET /clients/{client_id}/loyalty
+
+A customer's relationship tier and perks, for the app to display. Tier from products held: standard (0–1), silver (2), gold (3), platinum (4+). Returns `{client_id, customer_name, tier, products_held, deposit_rate_bonus_pct, cashback_uplift_pct, perks, next_tier_hint}`.
 
 On activation the card is also recorded on the customer's profile via backend `POST /clients/{id}/products`. The response includes `recorded` (true/false) — best-effort, so a transient backend hiccup won't block the activation itself.
 

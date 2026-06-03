@@ -206,6 +206,37 @@ CREDIT_CARD_ABS_CAP_RUB = 1_500_000
 # Investment concentration cap (max share of balance in one holding) by risk level.
 CONCENTRATION_CAP_BY_RISK = {1: 0.90, 2: 0.90, 3: 0.70, 4: 0.50, 5: 0.50}
 
+# Loyalty / relationship rewards — risk-free growth. The more products a customer
+# holds, the better deposit rate and cashback they earn. No credit risk involved.
+DEPOSIT_MAX_BONUS_PCT = 1.5      # cap on total deposit rate uplift
+
+
+def _loyalty_tier(customer: dict) -> dict:
+    """Relationship tier from the number of products the customer holds, with the
+    deposit-rate and cashback perks it carries."""
+    n = len(customer.get("products", []) or [])
+    if n >= 4:
+        tier, dep, cb = "platinum", 0.75, 1.0
+    elif n == 3:
+        tier, dep, cb = "gold", 0.50, 0.75
+    elif n == 2:
+        tier, dep, cb = "silver", 0.25, 0.50
+    else:
+        tier, dep, cb = "standard", 0.0, 0.0
+    return {"tier": tier, "products_held": n,
+            "deposit_rate_bonus_pct": dep, "cashback_uplift_pct": cb}
+
+
+def _deposit_amount_bonus(amount: float) -> float:
+    """Bigger balances earn a better rate (liability growth, no credit risk)."""
+    if amount >= 3_000_000:
+        return 1.0
+    if amount >= 1_000_000:
+        return 0.5
+    if amount >= 300_000:
+        return 0.25
+    return 0.0
+
 # Mortgage thresholds
 MORTGAGE_MAX_RISK = 0.55
 MORTGAGE_MIN_INCOME = 40_000     # mortgages need a stronger income
@@ -653,7 +684,13 @@ async def card_activate(req: ActivateRequest) -> dict:
     customer = resp.json()
 
     segment = customer.get("segment", "mass")
-    rates = CASHBACK_RATES.get(segment, DEFAULT_CASHBACK)
+    base_rates = CASHBACK_RATES.get(segment, DEFAULT_CASHBACK)
+
+    # Relationship reward: multi-product customers earn a cashback uplift (capped
+    # at the headline 7% ceiling). Pure loyalty perk, no credit risk.
+    loyalty = _loyalty_tier(customer)
+    uplift = loyalty["cashback_uplift_pct"]
+    rates = {k: round(min(v + uplift, 7.0), 2) for k, v in base_rates.items()}
 
     # Record the holding on the customer's profile so it actually sticks.
     # Best-effort: a transient failure shouldn't block the activation.
@@ -668,6 +705,8 @@ async def card_activate(req: ActivateRequest) -> dict:
         "recorded": recorded,
         "customer_name": customer.get("name"),
         "segment": segment,
+        "loyalty_tier": loyalty["tier"],
+        "cashback_uplift_pct": uplift,
         "cashback_rates_pct": rates,
         "message": (
             f"Card activated for {customer.get('name')}. "
@@ -807,8 +846,15 @@ async def deposit_open(req: DepositOpenRequest) -> dict:
         day = min(today.day, last_day)
         matures_at = datetime.date(year, month, day).isoformat()
 
+    # Loyalty + amount bonus on the rate — risk-free, rewards bigger and more
+    # engaged savers. Capped so the margin stays sane.
+    loyalty = _loyalty_tier(customer)
+    amount_bonus = _deposit_amount_bonus(req.amount_rub)
+    bonus = min(amount_bonus + loyalty["deposit_rate_bonus_pct"], DEPOSIT_MAX_BONUS_PCT)
+    effective_rate = round(product["rate_pct"] + bonus, 2)
+
     interest_rub = round(
-        req.amount_rub * product["rate_pct"] / 100 * (term_months or 12) / 12
+        req.amount_rub * effective_rate / 100 * (term_months or 12) / 12
     )
 
     # Move the money: call backend to debit the balance and book the deposit.
@@ -817,7 +863,7 @@ async def deposit_open(req: DepositOpenRequest) -> dict:
         "product": req.product_id,
         "amount_rub": req.amount_rub,
         "term_months": term_months,
-        "rate_pct": product["rate_pct"],
+        "rate_pct": effective_rate,
     }
     async with httpx.AsyncClient(timeout=10) as client:
         mv = await client.post(f"{BACKEND_URL}/api/deposits", json=payload)
@@ -838,7 +884,11 @@ async def deposit_open(req: DepositOpenRequest) -> dict:
         "opened": True,
         "deposit_id": moved.get("deposit_id"),
         "amount_rub": req.amount_rub,
-        "rate_pct": product["rate_pct"],
+        "rate_pct": effective_rate,
+        "base_rate_pct": product["rate_pct"],
+        "amount_bonus_pct": amount_bonus,
+        "loyalty_bonus_pct": loyalty["deposit_rate_bonus_pct"],
+        "loyalty_tier": loyalty["tier"],
         "term_months": term_months,
         "early_withdrawal": product["early_withdrawal"],
         "opened_at": opened_at,
@@ -1541,6 +1591,25 @@ async def referral_validate(req: ReferralValidateRequest) -> dict:
             "bonus_by_segment_rub": REFERRAL_BONUS_BY_SEGMENT,
             "referee_bonus_rub": REFERRAL_REFEREE_BONUS,
         },
+    }
+
+
+@app.get("/clients/{client_id}/loyalty")
+async def loyalty_status(client_id: str) -> dict:
+    """A customer's relationship tier and the perks it earns — for the app to
+    show 'you're a Gold customer: +0.5% on deposits, +0.75% cashback'."""
+    customer = await _fetch_customer(client_id)
+    loyalty = _loyalty_tier(customer)
+    return {
+        "client_id": client_id,
+        "customer_name": customer.get("name"),
+        **loyalty,
+        "perks": {
+            "deposit_rate_bonus_pct": loyalty["deposit_rate_bonus_pct"],
+            "cashback_uplift_pct": loyalty["cashback_uplift_pct"],
+        },
+        "next_tier_hint": "Hold more products to reach the next tier and earn bigger rewards."
+            if loyalty["tier"] != "platinum" else "Top tier — enjoy the best rewards.",
     }
 
 
