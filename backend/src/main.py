@@ -1109,3 +1109,89 @@ async def recommendations_summary(
     breakdown = sorted(by_product.values(),
                        key=lambda r: r["candidates"], reverse=True)
     return {"clients_analysed": analysed, "by_product": breakdown}
+
+
+# ---------- Аналитика: какие фичи приводят клиентов ----------
+#
+# Честная оговорка: в данных нет поля «клиент пришёл ради этой фичи». Есть дата
+# прихода (`joined_at`) и продукты, которыми клиент владеет сейчас. Поэтому
+# смотрим с двух сторон: (1) по существующей базе — у скольких клиентов есть
+# каждая фича, какую ценность (остатки, доход) они приносят и в какие годы эти
+# клиенты пришли; (2) по «живому» журналу — что реально оформляют прямо сейчас
+# через новые ручки (вклады, карты, инвестиции, журнал продуктов). Второе и есть
+# настоящая атрибуция новых подключений — она копится с момента запуска фич.
+
+# Понятные названия фич для отчёта.
+_FEATURE_TITLES = {
+    "deposit": "Вклады", "savings": "Накопительный счёт",
+    "credit_card": "Кредитная карта", "consumer_credit": "Потребкредит",
+    "auto_credit": "Автокредит", "mortgage": "Ипотека", "debit": "Дебетовая карта",
+}
+
+
+@app.get("/analytics/feature-acquisition")
+async def feature_acquisition() -> dict:
+    """Какие фичи приводят и держат клиентов. Возвращает `{clients_total,
+    by_feature: [...], acquisition_by_year: {...}, live_adoption: {...}, note}`.
+    `by_feature` (сильнейшие сверху) — `{feature, title, clients, share_pct,
+    total_balance_rub, avg_balance_rub, avg_income_rub, joined_by_year}`.
+    `live_adoption` — что реально оформляют через новые ручки с момента запуска."""
+    total = len(_clients)
+    by_feature: dict[str, dict[str, Any]] = {}
+    acquisition_by_year: dict[str, int] = {}
+
+    for c in _clients:
+        year = (c.get("joined_at") or "")[:4] or "?"
+        acquisition_by_year[year] = acquisition_by_year.get(year, 0) + 1
+        balance = int(c.get("balance_rub", 0))
+        income = int(c.get("income_rub", 0))
+        for p in c.get("products") or []:
+            row = by_feature.setdefault(p, {
+                "feature": p,
+                "title": _FEATURE_TITLES.get(p, p),
+                "clients": 0,
+                "total_balance_rub": 0,
+                "_income_sum": 0,
+                "joined_by_year": {},
+            })
+            row["clients"] += 1
+            row["total_balance_rub"] += balance
+            row["_income_sum"] += income
+            row["joined_by_year"][year] = row["joined_by_year"].get(year, 0) + 1
+
+    feats = []
+    for row in by_feature.values():
+        n = row["clients"]
+        row["share_pct"] = round(100 * n / total, 1) if total else 0
+        row["avg_balance_rub"] = int(row["total_balance_rub"] / n) if n else 0
+        row["avg_income_rub"] = int(row.pop("_income_sum") / n) if n else 0
+        row["joined_by_year"] = dict(sorted(row["joined_by_year"].items()))
+        feats.append(row)
+    feats.sort(key=lambda r: r["clients"], reverse=True)
+
+    # Живая атрибуция: что оформляют через новые ручки прямо сейчас.
+    openings_by_product: dict[str, int] = {}
+    for e in _product_events:
+        openings_by_product[e["product"]] = openings_by_product.get(e["product"], 0) + 1
+    live_adoption = {
+        "deposits_opened": len(_deposits),
+        "credit_cards_issued_via_api": sum(
+            1 for c in _credit_cards if not c["history"]
+            or c["history"][0].get("note") != "перенос текущей задолженности"),
+        "investment_accounts_opened": sum(
+            1 for h in _holdings_by_client.values() if h),
+        "product_openings_logged": len(_product_events),
+        "openings_by_product": dict(sorted(
+            openings_by_product.items(), key=lambda kv: kv[1], reverse=True)),
+    }
+
+    return {
+        "clients_total": total,
+        "by_feature": feats,
+        "acquisition_by_year": dict(sorted(acquisition_by_year.items())),
+        "live_adoption": live_adoption,
+        "note": "by_feature и acquisition_by_year — по существующей базе "
+                "(чем владеют клиенты и когда пришли); это связь, не доказанная "
+                "причина. live_adoption — настоящая атрибуция новых подключений "
+                "через новые ручки, копится с момента запуска фич.",
+    }

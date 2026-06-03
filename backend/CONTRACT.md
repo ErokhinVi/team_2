@@ -183,6 +183,19 @@ cost_basis_rub, unrealized_pnl_rub}`. `404`, если клиента нет.
 сегменту. Возвращает `{clients_analysed, by_product: [{product, title,
 candidates, potential_amount_rub, potential_annual_benefit_rub}]}`.
 
+## Аналитика привлечения
+
+### GET /analytics/feature-acquisition
+Какие фичи приводят и держат клиентов. По существующей базе — у скольких
+клиентов есть каждая фича, их ценность (остатки, доход) и в какие годы они
+пришли; плюс «живая» атрибуция новых подключений через новые ручки. Возвращает
+`{clients_total, by_feature: [{feature, title, clients, share_pct,
+total_balance_rub, avg_balance_rub, avg_income_rub, joined_by_year}],
+acquisition_by_year, live_adoption: {deposits_opened, credit_cards_issued_via_api,
+investment_accounts_opened, product_openings_logged, openings_by_product}, note}`.
+`by_feature` — связь, не доказанная причина; `live_adoption` копится с момента
+запуска фич и есть настоящая атрибуция.
+
 ## Кредитные карты
 
 Карта — это `{card_id, client_id, credit_limit_rub, balance_owed_rub,
