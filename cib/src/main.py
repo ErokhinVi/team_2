@@ -808,21 +808,119 @@ async def investment_order_check(req: OrderCheckRequest) -> dict:
     }
 
 
+# English subtitles + one-line benefit per product, for the customer showcase.
+PRODUCT_COPY = {
+    "card-debit-cashback": ("Cashback debit card", "Up to 7% back on everyday spending"),
+    "card-credit":         ("Credit card", "55 days interest-free"),
+    "card-credit-secured": ("Secured credit card", "Build your limit, get approved"),
+    "deposit-3m":          ("3-month deposit", "Short term, guaranteed return"),
+    "deposit-6m":          ("6-month deposit", "Balanced term and rate"),
+    "deposit-12m":         ("12-month deposit", "Our best savings rate"),
+    "deposit-flex":        ("Flexible savings", "Withdraw anytime, earn daily"),
+    "credit-consumer":     ("Consumer loan", "Instant decision, fair rate"),
+    "inv-ofz":             ("Government bonds", "Lowest risk, steady income"),
+    "inv-corp-bond":       ("Corporate bond fund", "Higher yield, low risk"),
+    "inv-etf-index":       ("Index ETF", "The whole market in one buy"),
+    "inv-equity-fund":     ("Equity fund", "Diversified growth"),
+    "inv-bluechip":        ("Blue-chip stocks", "Russia's strongest names"),
+    "inv-growth":          ("Growth stocks", "Higher risk, higher upside"),
+}
+
+# Category metadata: kind -> (section title, icon, accent)
+CATEGORIES = [
+    ("Cards", "💳", ("card", "credit_card")),
+    ("Savings & Deposits", "🏦", ("deposit",)),
+    ("Lending", "💰", ("credit",)),
+    ("Investments", "📈", ("investment",)),
+]
+
+
+def _product_highlight(p: dict) -> str:
+    """A short, customer-facing headline figure for a product card."""
+    kind = p["kind"]
+    if kind == "card":
+        return "Cashback up to 7%"
+    if kind == "credit_card":
+        return f"{p['rate_pct']}% · {p['grace_period_days']}-day grace"
+    if kind == "deposit":
+        term = f"{p['term_months']} mo" if p.get("term_months") else "flexible"
+        return f"{p['rate_pct']}% p.a. · {term}"
+    if kind == "credit":
+        return f"from {p['rate_pct']}%"
+    if kind == "investment":
+        return f"~{p['expected_return_pct']}% · risk {p['risk_level']}/5"
+    return ""
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index() -> str:
-    rows = "".join(
-        f"<tr><td>{p['id']}</td><td>{p['kind']}</td><td>{p['name']}</td></tr>"
-        for p in PRODUCTS
-    )
+    def card(p: dict) -> str:
+        en, benefit = PRODUCT_COPY.get(p["id"], (p["name"], ""))
+        return (
+            "<article class='card'>"
+            f"<div class='hl'>{_product_highlight(p)}</div>"
+            f"<h3>{en}</h3>"
+            f"<div class='ru'>{p['name']}</div>"
+            f"<p>{benefit}</p>"
+            "</article>"
+        )
+
+    sections = ""
+    for title, icon, kinds in CATEGORIES:
+        items = [p for p in PRODUCTS if p["kind"] in kinds]
+        if not items:
+            continue
+        cards = "".join(card(p) for p in items)
+        sections += (
+            f"<section><h2><span class='ic'>{icon}</span>{title}"
+            f"<span class='count'>{len(items)}</span></h2>"
+            f"<div class='grid'>{cards}</div></section>"
+        )
+
     return (
-        "<!doctype html><html lang='ru'><head><meta charset='utf-8'>"
-        "<title>cib · Райффайзен</title><style>"
-        "body{font-family:system-ui;background:#0c0d10;color:#e8e9ec;padding:32px}"
-        "h1{font-weight:500}table{border-collapse:collapse;margin-top:16px}"
-        "td,th{border:1px solid #23262f;padding:8px 14px;text-align:left}"
+        "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
+        "<meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Raiffeisen — Products</title><style>"
+        "*{box-sizing:border-box;margin:0;padding:0}"
+        "body{font-family:-apple-system,Segoe UI,Roboto,system-ui,sans-serif;"
+        "background:#f5f6f8;color:#1a1a1a;line-height:1.5}"
+        ".hero{background:#ffed00;padding:40px 24px 48px}"
+        ".hero .wrap{max-width:1040px;margin:0 auto}"
+        ".brand{font-weight:800;font-size:15px;letter-spacing:.5px;color:#111}"
+        ".hero h1{font-size:34px;font-weight:800;margin:14px 0 8px;max-width:620px}"
+        ".hero p{font-size:17px;color:#3a3a26;max-width:560px}"
+        ".stats{display:flex;gap:28px;flex-wrap:wrap;margin-top:24px}"
+        ".stat b{display:block;font-size:24px;font-weight:800}"
+        ".stat span{font-size:13px;color:#4a4a30}"
+        ".main{max-width:1040px;margin:-24px auto 56px;padding:0 24px}"
+        "section{margin-top:36px}"
+        "h2{font-size:20px;font-weight:700;display:flex;align-items:center;gap:10px;margin-bottom:14px}"
+        ".ic{font-size:22px}"
+        ".count{font-size:12px;font-weight:700;background:#111;color:#ffed00;"
+        "border-radius:20px;padding:2px 9px}"
+        ".grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:14px}"
+        ".card{background:#fff;border:1px solid #ececec;border-radius:14px;padding:18px;"
+        "transition:transform .12s ease,box-shadow .12s ease}"
+        ".card:hover{transform:translateY(-3px);box-shadow:0 8px 24px rgba(0,0,0,.08)}"
+        ".hl{display:inline-block;font-size:13px;font-weight:700;color:#111;"
+        "background:#ffed00;border-radius:8px;padding:3px 9px;margin-bottom:10px}"
+        ".card h3{font-size:16px;font-weight:700}"
+        ".card .ru{font-size:12px;color:#999;margin:2px 0 8px}"
+        ".card p{font-size:13px;color:#555}"
+        "footer{max-width:1040px;margin:0 auto 40px;padding:0 24px;font-size:12px;color:#aaa}"
         "</style></head><body>"
-        "<h1>cib — корпоратив и бизнес-логика</h1>"
-        f"<p>Команда: {TEAM_NAME}. Каталог продуктов:</p>"
-        f"<table><tr><th>id</th><th>вид</th><th>название</th></tr>{rows}</table>"
+        "<div class='hero'><div class='wrap'>"
+        "<div class='brand'>RAIFFEISEN</div>"
+        "<h1>Smart banking products, instant decisions</h1>"
+        "<p>Every loan, card and investment is checked for you in real time — "
+        "approved fast, priced fairly, suited to you.</p>"
+        "<div class='stats'>"
+        f"<div class='stat'><b>{len(PRODUCTS)}</b><span>products</span></div>"
+        "<div class='stat'><b>instant</b><span>credit decisions</span></div>"
+        "<div class='stat'><b>risk-checked</b><span>investments</span></div>"
+        "<div class='stat'><b>0%</b><span>hidden fees</span></div>"
+        "</div></div></div>"
+        f"<div class='main'>{sections}</div>"
+        f"<footer>Team {TEAM_NAME} · corporate &amp; business logic · live catalogue</footer>"
         "</body></html>"
     )
