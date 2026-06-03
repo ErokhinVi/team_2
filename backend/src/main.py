@@ -449,6 +449,7 @@ async def pay_credit_card(card_id: str, payload: dict) -> dict:
 
 # ---------- Продукты клиента ----------
 
+@app.post("/clients/{client_id}/products")
 @app.post("/api/clients/{client_id}/products")
 async def add_client_product(client_id: str, payload: dict) -> dict:
     """Записать новый продукт в профиль клиента. Зовёт cib после того, как
