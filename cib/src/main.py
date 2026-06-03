@@ -341,6 +341,17 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
 
     approved = not reasons
 
+    # On approval, record the mortgage on the customer's profile so it sticks
+    # and counts. Best-effort — a transient backend hiccup won't block the decision.
+    recorded = False
+    if approved:
+        recorded = await _record_product(req.client_id, "mortgage", {
+            "loan_amount_rub": round(loan_rub, 2),
+            "rate_pct": product["rate_pct"],
+            "term_years": term_years,
+            "monthly_payment_rub": monthly_payment,
+        })
+
     explanation = ""
     try:
         verdict = "approved" if approved else "declined"
@@ -358,6 +369,7 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
         "client_id": req.client_id,
         "product_id": "mortgage",
         "approved": approved,
+        "recorded": recorded,
         "property_price_rub": req.property_price_rub,
         "down_payment_rub": req.down_payment_rub,
         "loan_amount_rub": round(loan_rub, 2),

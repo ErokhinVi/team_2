@@ -89,7 +89,7 @@ Checks the down payment (min 20%), no overdue history, risk score ≤ 0.55, inco
 }
 ```
 
-`approved: false` with `reasons` if any rule fails. HTTP 400 on invalid price/down payment.
+`approved: false` with `reasons` if any rule fails. HTTP 400 on invalid price/down payment. On approval the mortgage is recorded on the customer's profile via backend `POST /clients/{id}/products` (response includes `recorded`, best-effort).
 
 ### POST /investment/suitability
 
