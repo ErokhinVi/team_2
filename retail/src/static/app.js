@@ -158,6 +158,7 @@
         icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>'),
         children: [
           { pane: "loans",    i18n: "loans_tab" },
+          { pane: "carloan",  i18n: "carloan_tab" },
           { pane: "mortgage", i18n: "mortgage_tab" },
         ] },
       { key: "friends", i18n: "friends_tab",
@@ -174,6 +175,7 @@
       invest:     (cid) => loadInvest(cid),
       brokerage:  (cid) => loadBrokerage(cid),
       mortgage:   (cid) => loadMortgage(cid),
+      carloan:    (cid) => loadCarLoan(cid),
       invite:     (cid) => loadInvite(cid),
     };
 
@@ -347,6 +349,14 @@
         friends_tab:      "Друзья",
         debit_short:      "Дебетовая",
         credit_short:     "Кредитная",
+        carloan_tab:      "Автокредит",
+        loading_carloan:  "Загрузка автокредита...",
+        carloan_title:    "Калькулятор автокредита",
+        car_price:        "Стоимость автомобиля, ₽",
+        car_intro:        "Рассчитайте платёж и подайте заявку на покупку авто.",
+        approved_carloan: "Автокредит одобрен",
+        declined_carloan: "Автокредит отклонён",
+        your_carloans:    "Ваши автокредиты",
         loading_invite:   "Загрузка приглашений...",
         invite_title:     "Приведи друга",
         invite_subtitle:  "Поделитесь кодом — оба получите бонус",
@@ -561,6 +571,14 @@
         friends_tab:      "Friends",
         debit_short:      "Debit",
         credit_short:     "Credit",
+        carloan_tab:      "Car loan",
+        loading_carloan:  "Loading car loan...",
+        carloan_title:    "Car-loan calculator",
+        car_price:        "Car price, ₽",
+        car_intro:        "Calculate your payment and apply for a car loan.",
+        approved_carloan: "Car loan approved",
+        declined_carloan: "Car loan declined",
+        your_carloans:    "Your car loans",
         loading_invite:   "Loading invitations...",
         invite_title:     "Invite a friend",
         invite_subtitle:  "Share your code — both of you get a bonus",
@@ -1659,6 +1677,163 @@
             resBox.innerHTML = `<div class="decision-box declined">
               <div class="decision-icon">&#10007;</div>
               <div class="decision-status">${t("declined_mortgage")}</div>
+              <div class="decision-detail">
+                ${reasons ? `<ul style="margin:8px 0 0; padding-left:18px; text-align:left">${reasons}</ul>` : ""}
+                ${explanation}
+              </div>
+            </div>`;
+          } else {
+            resBox.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+          }
+        } catch (e) {
+          resBox.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+        }
+      });
+    }
+
+    // ---- Car loan ----
+    const carLoanContainer = document.getElementById("carloan-container");
+
+    async function loadCarLoan(clientId) {
+      try {
+        const r = await fetch(`/api/car-loan/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        renderCarLoan(await r.json());
+      } catch (e) {
+        carLoanContainer.innerHTML = `<div class="empty">${t("error")}</div>`;
+      }
+    }
+
+    function renderCarLoan(d) {
+      const existing = d.existing_loans || [];
+      let existingHtml = "";
+      if (existing.length) {
+        existingHtml = `<div class="section-title">${t("your_carloans")}</div>` +
+          existing.map(m => `
+            <div class="existing-deposit">
+              <div class="ed-top">
+                <span class="ed-name">${m.product_name || t("carloan_tab")}</span>
+                <span class="ed-amount">${fmt.format(m.loan_amount_rub || 0)} ₽</span>
+              </div>
+              <div class="ed-detail">
+                ${m.rate_pct || ""}% · ${m.term_years || ""} ${t("years_short")} · ${t("monthly_payment")}: ${fmt.format(Math.round(m.monthly_payment_rub || 0))} ₽
+              </div>
+            </div>
+          `).join("");
+      }
+
+      carLoanContainer.innerHTML = `
+        ${existingHtml}
+        <div class="section-title" style="margin-top:18px">${t("carloan_title")}</div>
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">${t("car_intro")}</div>
+
+        <form id="carloan-form" autocomplete="off">
+          <div class="form-row">
+            <label>${t("car_price")}</label>
+            <input name="price" type="number" min="100000" step="50000" placeholder="1 500 000" />
+          </div>
+          <div class="form-row">
+            <label>${t("down_payment")}</label>
+            <input name="down" type="number" min="0" step="50000" placeholder="300 000" />
+          </div>
+          <div class="form-row">
+            <label>${t("term_years")}</label>
+            <select name="term">
+              ${[1,2,3,4,5,6,7].map(y =>
+                `<option value="${y}"${y === 5 ? " selected" : ""}>${y} ${t("years_short")}</option>`).join("")}
+            </select>
+          </div>
+
+          <div id="carloan-preview" class="cc-details" style="display:none">
+            <div class="cc-detail-row"><span class="cc-dl">${t("loan_amount")}</span><span class="cc-dv" id="cl-loan">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("monthly_payment")}</span><span class="cc-dv" id="cl-month">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("total_to_pay")}</span><span class="cc-dv" id="cl-total">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("rate_label_short")}</span><span class="cc-dv" id="cl-rate">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("ltv_label")}</span><span class="cc-dv" id="cl-ltv">—</span></div>
+            <div class="cc-detail-row"><span class="cc-dl">${t("dti_label")}</span><span class="cc-dv" id="cl-dti">—</span></div>
+          </div>
+
+          <button class="btn primary" type="submit">${t("apply_mortgage")}</button>
+        </form>
+        <div id="carloan-result"></div>
+      `;
+
+      const form = document.getElementById("carloan-form");
+      const preview = document.getElementById("carloan-preview");
+      const inputs = form.querySelectorAll("input, select");
+
+      function localUpdate() {
+        const price = +form.price.value || 0;
+        const down = +form.down.value || 0;
+        const years = +form.term.value || 0;
+        if (price <= 0 || years <= 0) { preview.style.display = "none"; return; }
+        const loan = Math.max(price - down, 0);
+        const monthly = annuityMonthly(loan, d.default_rate_pct, years * 12);
+        const total = monthly * years * 12;
+        const ltv = price > 0 ? (loan / price) * 100 : 0;
+        const dti = d.income_rub > 0 ? (monthly / d.income_rub) * 100 : null;
+        document.getElementById("cl-loan").textContent  = fmt.format(Math.round(loan)) + " ₽";
+        document.getElementById("cl-month").textContent = fmt.format(Math.round(monthly)) + " ₽";
+        document.getElementById("cl-total").textContent = fmt.format(Math.round(total)) + " ₽";
+        document.getElementById("cl-rate").textContent  = d.default_rate_pct + "%";
+        document.getElementById("cl-ltv").textContent   = ltv.toFixed(1) + "%";
+        document.getElementById("cl-dti").textContent   = dti == null ? "—" : dti.toFixed(1) + "%";
+        preview.style.display = "flex";
+      }
+      inputs.forEach(el => el.addEventListener("input", localUpdate));
+      inputs.forEach(el => el.addEventListener("change", localUpdate));
+
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const resBox = document.getElementById("carloan-result");
+        resBox.innerHTML = "";
+        const price = +form.price.value || 0;
+        const down = +form.down.value || 0;
+        const years = +form.term.value || 0;
+        if (price <= 0 || years <= 0) {
+          resBox.innerHTML = `<div class="alert error">${t("fill_mortgage")}</div>`;
+          return;
+        }
+        if (down > availableBalance()) {
+          resBox.innerHTML = `<div class="alert error">${t("insufficient_funds")}</div>`;
+          return;
+        }
+        try {
+          const r = await fetch("/api/car-loan/apply", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              client_id: d.client_id,
+              car_price_rub: price,
+              down_payment_rub: down,
+              term_years: years,
+            }),
+          });
+          const res = await r.json();
+          if (r.ok && res.status === "approved") {
+            const explanation = res.explanation
+              ? `<div class="mortgage-explain">${res.explanation}</div>` : "";
+            resBox.innerHTML = `
+              <div class="mortgage-approved">
+                <div class="ma-status">${t("approved_carloan")}</div>
+                <div class="ma-pay-label">${t("monthly_payment")}</div>
+                <div class="ma-pay-value">${fmt.format(Math.round(res.monthly_payment_rub))} ₽</div>
+                <div class="ma-pay-sub">${res.term_years} ${t("years_short")} · ${res.rate_pct}%</div>
+                <div class="ma-details">
+                  <div><span>${t("loan_amount")}</span><b>${fmt.format(res.loan_amount_rub)} ₽</b></div>
+                  <div><span>${t("total_to_pay")}</span><b>${fmt.format(Math.round(res.total_to_pay_rub || 0))} ₽</b></div>
+                  ${res.ltv_pct != null ? `<div><span>${t("ltv_label")}</span><b>${res.ltv_pct}%</b></div>` : ""}
+                  ${res.dti_pct != null ? `<div><span>${t("dti_label")}</span><b>${res.dti_pct}%</b></div>` : ""}
+                </div>
+                ${explanation}
+              </div>`;
+            setTimeout(() => loadCarLoan(d.client_id), 800);
+          } else if (r.ok && res.status === "declined") {
+            const reasons = (res.reasons || []).map(x => `<li>${x}</li>`).join("");
+            const explanation = res.explanation
+              ? `<div class="mortgage-explain" style="text-align:center">${res.explanation}</div>` : "";
+            resBox.innerHTML = `<div class="decision-box declined">
+              <div class="decision-icon">&#10007;</div>
+              <div class="decision-status">${t("declined_carloan")}</div>
               <div class="decision-detail">
                 ${reasons ? `<ul style="margin:8px 0 0; padding-left:18px; text-align:left">${reasons}</ul>` : ""}
                 ${explanation}

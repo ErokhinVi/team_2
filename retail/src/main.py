@@ -14,8 +14,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from src import (brokerage, cards, core, investments, loans, locks, mortgages,
-                 offers, referrals, savings, transfers)
+from src import (brokerage, cards, carloans, core, investments, loans, locks,
+                 mortgages, offers, referrals, savings, transfers)
 from src.services import BACKEND_URL, CIB_URL, COMMIT, STATIC_DIR, TEAM_NAME
 
 app = FastAPI(title="retail — мобильный банк", version="2.1.0")
@@ -120,6 +120,7 @@ for _router in (
     investments.router,
     brokerage.router,
     loans.router,
+    carloans.router,
     mortgages.router,
     referrals.router,
 ):

@@ -1,13 +1,15 @@
-"""Mortgage endpoints: live quote + application.
+"""Car-loan endpoints: live monthly-payment calculator + application.
+
+Mirrors the mortgage flow but with shorter terms, higher rates, and a smaller
+minimum down payment — the car itself is collateral.
 
 Wires through:
-  * CIB POST /mortgage/quote   — decision + monthly payment + LTV + DTI (when shipped)
-  * CIB POST /mortgage/apply   — commit (when shipped)
-  * Backend POST /clients/{id}/mortgages — store the opened mortgage (when shipped)
+  * CIB POST /car-loan/decide      — decision + monthly payment (when shipped)
+  * Reads existing car loans from backend's customer product-event log
+    (GET /clients/{id}/products), the same place Gert records mortgages.
 
-Falls back to a transparent local annuity calculation so the screen is usable
-end-to-end immediately. The fallback rules — 20% min down payment,
-40% max DTI, 14.5% default rate — mirror typical RU mortgage policy.
+Until cib ships /car-loan/decide, falls back to a transparent local annuity
+calculation so the screen is fully usable end-to-end immediately.
 """
 from __future__ import annotations
 
@@ -17,17 +19,17 @@ from src.services import BACKEND_URL, CIB_URL, backend_get, try_get, try_post
 
 router = APIRouter()
 
-# Fallback policy used until CIB ships a mortgage decision endpoint
-DEFAULT_RATE_PCT = 14.5
-MIN_DOWN_PAYMENT_PCT = 20.0
-MAX_DTI_PCT = 40.0
-MIN_TERM_YEARS = 5
-MAX_TERM_YEARS = 30
-MIN_LOAN_RUB = 500_000
+# Fallback policy — typical RU auto-loan terms
+DEFAULT_RATE_PCT = 18.9
+MIN_DOWN_PAYMENT_PCT = 10.0
+MAX_DTI_PCT = 45.0
+MIN_TERM_YEARS = 1
+MAX_TERM_YEARS = 7
+MIN_LOAN_RUB = 100_000
+PRODUCT_KEYWORDS = ("car-loan", "car-credit", "auto-loan", "autoloan", "car loan", "автокредит")
 
 
 def _monthly_payment(principal: float, annual_rate_pct: float, term_months: int) -> float:
-    """Standard annuity formula."""
     if term_months <= 0 or principal <= 0:
         return 0.0
     r = (annual_rate_pct / 100.0) / 12.0
@@ -37,16 +39,15 @@ def _monthly_payment(principal: float, annual_rate_pct: float, term_months: int)
     return round(principal * (r * factor) / (factor - 1), 2)
 
 
-def _local_quote(customer: dict, property_price: float, down_payment: float,
+def _local_quote(customer: dict, car_price: float, down_payment: float,
                  term_years: int, rate_pct: float | None = None) -> dict:
-    """Fallback decision when CIB doesn't have a mortgage endpoint yet."""
     rate = rate_pct if rate_pct is not None else DEFAULT_RATE_PCT
-    loan = round(property_price - down_payment, 2)
+    loan = round(car_price - down_payment, 2)
     term_months = term_years * 12
     monthly = _monthly_payment(loan, rate, term_months)
     total_to_pay = round(monthly * term_months, 2)
     total_interest = round(total_to_pay - loan, 2)
-    ltv_pct = round((loan / property_price) * 100, 2) if property_price > 0 else 0
+    ltv_pct = round((loan / car_price) * 100, 2) if car_price > 0 else 0
     income = customer.get("income_rub", 0) or 0
     dti_pct = round((monthly / income) * 100, 2) if income > 0 else None
     has_overdue = customer.get("has_overdue_history", False)
@@ -56,8 +57,8 @@ def _local_quote(customer: dict, property_price: float, down_payment: float,
         reasons.append(f"loan below minimum ({loan} < {MIN_LOAN_RUB})")
     if term_years < MIN_TERM_YEARS or term_years > MAX_TERM_YEARS:
         reasons.append(f"term must be between {MIN_TERM_YEARS} and {MAX_TERM_YEARS} years")
-    if down_payment <= 0 or (down_payment / property_price * 100) < MIN_DOWN_PAYMENT_PCT:
-        reasons.append(f"down payment below {MIN_DOWN_PAYMENT_PCT}% of property price")
+    if down_payment < 0 or (car_price > 0 and (down_payment / car_price * 100) < MIN_DOWN_PAYMENT_PCT):
+        reasons.append(f"down payment below {MIN_DOWN_PAYMENT_PCT}% of car price")
     if dti_pct is not None and dti_pct > MAX_DTI_PCT:
         reasons.append(f"DTI {dti_pct}% exceeds maximum {MAX_DTI_PCT}%")
     if has_overdue:
@@ -80,42 +81,67 @@ def _local_quote(customer: dict, property_price: float, down_payment: float,
     }
 
 
-@router.get("/api/mortgage/{client_id}")
-async def mortgage_info(client_id: str) -> dict:
-    """Mortgage screen overview: customer profile + any existing mortgages."""
+def _validate(client_id: str, car_price: float, term_years: int) -> None:
+    if not client_id or car_price <= 0 or term_years <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="client_id, positive car_price_rub and term_years required",
+        )
+
+
+async def _decide(client_id: str, car_price: float, down_payment: float, term_years: int) -> dict:
+    cib = await try_post(CIB_URL, "/car-loan/decide", {
+        "client_id": client_id,
+        "car_price_rub": car_price,
+        "down_payment_rub": down_payment,
+        "term_years": term_years,
+    }, timeout=5.0)
+    if cib:
+        monthly = cib.get("monthly_payment_rub", 0) or 0
+        cib["total_to_pay_rub"] = round(monthly * term_years * 12, 2)
+        cib["source"] = "cib"
+        return cib
+    customer = await backend_get(f"/clients/{client_id}")
+    q = _local_quote(customer, car_price, down_payment, term_years)
+    q["client_id"] = client_id
+    q["car_price_rub"] = car_price
+    q["down_payment_rub"] = down_payment
+    return q
+
+
+@router.get("/api/car-loan/{client_id}")
+async def car_loan_info(client_id: str) -> dict:
+    """Car-loan screen overview: customer profile + bank policy + existing loans."""
     customer = await backend_get(f"/clients/{client_id}")
 
-    # Read existing mortgages from the customer's product-event log. Gert's
-    # /mortgage/decide records approvals there via backend POST /clients/{id}/products.
+    # Existing car loans from the customer's product log
     existing = []
-    mortgages_source = "none"
     products_log = await try_get(BACKEND_URL, f"/clients/{client_id}/products") or {}
     for ev in products_log.get("events", []):
         product = (ev.get("product") or "").lower()
-        if "mortgage" not in product and product not in ("ипотека",):
+        if not any(k in product for k in PRODUCT_KEYWORDS):
             continue
         details = ev.get("details") or {}
         existing.append({
             "id": ev.get("event_id"),
             "opened_at": ev.get("opened_at"),
             "product": ev.get("product"),
-            "product_name": "Mortgage",
+            "product_name": "Car loan",
             "loan_amount_rub": details.get("loan_amount_rub") or details.get("amount_rub"),
             "rate_pct": details.get("rate_pct"),
             "term_years": details.get("term_years"),
             "monthly_payment_rub": details.get("monthly_payment_rub"),
-            "property_price_rub": details.get("property_price_rub"),
+            "car_price_rub": details.get("car_price_rub"),
             "down_payment_rub": details.get("down_payment_rub"),
-            "ltv_pct": details.get("ltv_pct"),
         })
-    if products_log:
-        mortgages_source = "backend-products"
 
-    # Pull the bank's mortgage product (rate etc.) from CIB catalogue if present
+    # Pull bank's car-loan rate from cib catalogue if present
     rate_pct = DEFAULT_RATE_PCT
-    products = await try_get(CIB_URL, "/products") or {}
-    for p in products.get("items", []):
-        if p.get("kind") == "mortgage" or str(p.get("id", "")).startswith("mortgage"):
+    cat = await try_get(CIB_URL, "/products") or {}
+    for p in cat.get("items", []):
+        pid = str(p.get("id", "")).lower()
+        kind = str(p.get("kind", "")).lower()
+        if kind == "car-loan" or kind == "auto-loan" or "car" in pid or "auto" in pid:
             if p.get("rate_pct"):
                 rate_pct = p["rate_pct"]
                 break
@@ -131,72 +157,32 @@ async def mortgage_info(client_id: str) -> dict:
         "min_term_years": MIN_TERM_YEARS,
         "max_term_years": MAX_TERM_YEARS,
         "min_loan_rub": MIN_LOAN_RUB,
-        "existing_mortgages": existing,
-        "mortgages_source": mortgages_source,
+        "existing_loans": existing,
+        "loans_source": "backend-products" if products_log else "none",
     }
 
 
-async def _decide(client_id: str, property_price: float,
-                  down_payment: float, term_years: int) -> dict:
-    """Single source of truth: call Gert's /mortgage/decide; fall back locally."""
-    cib = await try_post(CIB_URL, "/mortgage/decide", {
-        "client_id": client_id,
-        "property_price_rub": property_price,
-        "down_payment_rub": down_payment,
-        "term_years": term_years,
-    }, timeout=5.0)
-    if cib:
-        # Total cost is convenient for the UI even though CIB doesn't return it.
-        monthly = cib.get("monthly_payment_rub", 0) or 0
-        cib["total_to_pay_rub"] = round(monthly * term_years * 12, 2)
-        cib["source"] = "cib"
-        return cib
-
-    # Fallback when CIB is unreachable
-    customer = await backend_get(f"/clients/{client_id}")
-    q = _local_quote(customer, property_price, down_payment, term_years)
-    q["client_id"] = client_id
-    q["property_price_rub"] = property_price
-    q["down_payment_rub"] = down_payment
-    q["explanation"] = q["explanation"] if "explanation" in q else (
-        "; ".join(q.get("reasons", [])) or "Approved"
-    )
-    return q
-
-
-def _validate(client_id: str, property_price: float, term_years: int) -> None:
-    if not client_id or property_price <= 0 or term_years <= 0:
-        raise HTTPException(
-            status_code=400,
-            detail="client_id, positive property_price_rub and term_years required",
-        )
-
-
-@router.post("/api/mortgage/quote")
-async def mortgage_quote(payload: dict) -> dict:
-    """Live quote — no commitment. Calls CIB POST /mortgage/decide."""
+@router.post("/api/car-loan/quote")
+async def car_loan_quote(payload: dict) -> dict:
     client_id = payload.get("client_id")
-    property_price = float(payload.get("property_price_rub", 0) or 0)
+    car_price = float(payload.get("car_price_rub", 0) or 0)
     down_payment = float(payload.get("down_payment_rub", 0) or 0)
-    term_years = int(payload.get("term_years", 20) or 0)
-    _validate(client_id, property_price, term_years)
-    return await _decide(client_id, property_price, down_payment, term_years)
+    term_years = int(payload.get("term_years", 5) or 0)
+    _validate(client_id, car_price, term_years)
+    return await _decide(client_id, car_price, down_payment, term_years)
 
 
-@router.post("/api/mortgage/apply")
-async def mortgage_apply(payload: dict) -> dict:
-    """Submit a mortgage application via CIB /mortgage/decide.
-
-    On approval, CIB itself records the mortgage on the customer's profile
-    (backend POST /clients/{id}/products), so retail doesn't store anything.
-    """
+@router.post("/api/car-loan/apply")
+async def car_loan_apply(payload: dict) -> dict:
+    """Submit a car-loan application via CIB. CIB records the loan on the
+    customer profile on approval (same pattern as mortgages)."""
     client_id = payload.get("client_id")
-    property_price = float(payload.get("property_price_rub", 0) or 0)
+    car_price = float(payload.get("car_price_rub", 0) or 0)
     down_payment = float(payload.get("down_payment_rub", 0) or 0)
-    term_years = int(payload.get("term_years", 20) or 0)
-    _validate(client_id, property_price, term_years)
+    term_years = int(payload.get("term_years", 5) or 0)
+    _validate(client_id, car_price, term_years)
 
-    decision = await _decide(client_id, property_price, down_payment, term_years)
+    decision = await _decide(client_id, car_price, down_payment, term_years)
 
     if not decision.get("approved"):
         return {
@@ -213,10 +199,29 @@ async def mortgage_apply(payload: dict) -> dict:
             "source": decision.get("source", "retail-heuristic"),
         }
 
+    # Best-effort: if CIB didn't record it on the profile (fallback path),
+    # write the event ourselves so the loan shows up on the screen later.
+    if decision.get("source") != "cib":
+        await try_post(
+            BACKEND_URL, f"/clients/{client_id}/products",
+            {
+                "product": "car-loan",
+                "source": "retail",
+                "details": {
+                    "loan_amount_rub": decision.get("loan_amount_rub"),
+                    "rate_pct": decision.get("rate_pct"),
+                    "term_years": decision.get("term_years", term_years),
+                    "monthly_payment_rub": decision.get("monthly_payment_rub"),
+                    "car_price_rub": car_price,
+                    "down_payment_rub": down_payment,
+                },
+            },
+        )
+
     return {
         "status": "approved",
         "client_id": client_id,
-        "product_id": decision.get("product_id", "mortgage"),
+        "product_id": decision.get("product_id", "car-loan"),
         "loan_amount_rub": decision.get("loan_amount_rub"),
         "rate_pct": decision.get("rate_pct"),
         "term_years": decision.get("term_years", term_years),

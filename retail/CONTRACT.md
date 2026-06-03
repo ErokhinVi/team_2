@@ -79,6 +79,27 @@ Payment toward credit card balance. Accepts `{client_id, amount_rub}`.
 Tries backend `POST /credit-card-payment`; if unavailable, returns
 simulated confirmation `{status, client_id, amount_rub, message, source}`.
 
+### GET /api/car-loan/{client_id}
+Car-loan screen overview. Returns customer profile, the bank's car-loan policy
+(default rate, min down payment %, max DTI, term range, min loan), and existing
+car loans read from backend's customer product log
+(`GET /clients/{id}/products`, events with product matching `car-loan`/`auto-loan`).
+Returns `{client_id, customer_name, income_rub, balance_rub, default_rate_pct,
+min_down_payment_pct, max_dti_pct, min_term_years, max_term_years, min_loan_rub,
+existing_loans, loans_source}`.
+
+### POST /api/car-loan/quote
+Live car-loan quote. Accepts `{client_id, car_price_rub, down_payment_rub,
+term_years}`. Tries CIB POST /car-loan/decide (when shipped); otherwise
+computes locally with the annuity formula. Returns the same shape as the
+mortgage quote endpoint plus `car_price_rub`.
+
+### POST /api/car-loan/apply
+Submit a car-loan application. Same payload as /quote. Tries CIB
+POST /car-loan/decide; if cib doesn't yet record the loan on the customer
+profile, retail writes the event via backend POST /clients/{id}/products
+(`product: "car-loan"`) so the loan shows up on the customer screen.
+
 ### GET /api/mortgage/{client_id}
 Mortgage screen overview. Returns customer income/balance, the bank's mortgage
 policy (default rate, min down payment %, max DTI, term range, min loan), and
@@ -149,7 +170,7 @@ amount_rub, max_amount_rub, reason, source}`.
 ## Кого я зову у соседей
 
 - backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /clients/{id}/deposits`, `POST /deposits` (fallback), `GET /cashback/{client_id}`, `POST /api/cashback/redeem`, `POST /clients/{id}/credit-cashback` (when shipped — payload `{amount_rub, source}`, used to pay out MGM referral bonus to both parties), `GET /instruments`, `GET /clients/{id}/portfolio`, `GET /clients/{id}/orders`, `POST /clients/{id}/orders` (execute buy/sell), `GET /clients/{id}/recommendations` (fallback for offers)
-- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /deposit/withdraw`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide`, `GET /clients/{id}/next-best-offers`, `POST /referral/validate` (when shipped — payload `{inviter_id, invitee_id}`, returns `{allowed, bonus_rub, reasons}` so the referral bonus can vary by segment and eligibility rules)
+- cib: `GET /products`, `POST /credit/decide`, `POST /card/activate`, `POST /card/credit-limit`, `POST /deposit/open`, `POST /deposit/withdraw`, `POST /investment/recommend`, `POST /investment/suitability`, `POST /investment/order-plan`, `POST /investment/order-check`, `POST /mortgage/decide`, `GET /clients/{id}/next-best-offers`, `POST /car-loan/decide` (when shipped — payload `{client_id, car_price_rub, down_payment_rub, term_years}`, returns the same decision shape as `/mortgage/decide`; CIB records the loan on the customer profile on approval), `POST /referral/validate` (when shipped)
 
 ## Где работает блок локально
 
