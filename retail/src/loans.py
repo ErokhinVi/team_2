@@ -60,6 +60,38 @@ async def credit_apply(payload: dict) -> dict:
     }
 
 
+@router.post("/api/credit/secured-apply")
+async def credit_secured_apply(payload: dict) -> dict:
+    """Secured lending — borrow against a deposit or investment held with us.
+
+    Proxies CIB POST /credit/secured-decide which returns approved + max loan
+    (85% of deposit collateral, 65% of portfolio) + rate + monthly payment.
+    """
+    client_id = payload.get("client_id")
+    amount = payload.get("amount_rub", 0)
+    collateral = payload.get("collateral_rub", 0)
+    collateral_type = payload.get("collateral_type")
+    term_months = payload.get("term_months", 12)
+    if (not client_id or amount <= 0 or collateral <= 0
+            or collateral_type not in ("deposit", "investment")):
+        raise HTTPException(
+            status_code=400,
+            detail="client_id, positive amount_rub and collateral_rub, "
+                   "collateral_type ('deposit'|'investment') required",
+        )
+
+    cib = await try_post(CIB_URL, "/credit/secured-decide", {
+        "client_id": client_id,
+        "amount_rub": amount,
+        "collateral_rub": collateral,
+        "collateral_type": collateral_type,
+        "term_months": term_months,
+    }, timeout=5.0)
+    if cib:
+        return {**cib, "source": "cib"}
+    raise HTTPException(status_code=502, detail="secured lending unavailable")
+
+
 @router.post("/api/credit/refinance")
 async def credit_refinance(payload: dict) -> dict:
     """Refinance the customer's existing debt at a lower risk-based rate.

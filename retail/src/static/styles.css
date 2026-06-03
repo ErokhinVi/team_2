@@ -924,3 +924,36 @@
       color: var(--text-2); text-align: center;
       padding: 8px; background: var(--bg); border-radius: 8px;
     }
+
+    /* ---- Loan-protection insurance offer ---- */
+    .protect-card {
+      margin-top: 14px;
+      background: linear-gradient(135deg, #0f2c34 0%, #1c5566 60%, #0e2a33 100%);
+      color: #eaf6f8;
+      border-radius: 18px;
+      padding: 18px 18px 16px;
+      box-shadow: 0 10px 24px rgba(15,44,52,0.25);
+    }
+    .protect-card .pc-head { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .protect-card .pc-shield { font-size: 28px; }
+    .protect-card .pc-title { font-weight: 700; font-size: 15px; }
+    .protect-card .pc-discount {
+      display: inline-block; margin-top: 4px;
+      background: var(--raiff); color: var(--text);
+      font-size: 11px; font-weight: 700;
+      padding: 3px 10px; border-radius: 16px;
+    }
+    .protect-card .pc-row {
+      display: flex; justify-content: space-between;
+      font-size: 13px; margin-top: 6px;
+    }
+    .protect-card .pc-covers { font-size: 12px; opacity: 0.85; margin-top: 8px; }
+    .protect-card .pc-actions {
+      display: flex; gap: 10px; margin-top: 14px;
+    }
+    .protect-card .pc-actions .btn { flex: 2; }
+    .protect-card .pc-actions .link-btn {
+      flex: 1;
+      background: transparent; color: #eaf6f8;
+      border-color: rgba(255,255,255,0.3);
+    }

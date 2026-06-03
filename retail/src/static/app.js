@@ -149,7 +149,7 @@
         panes: ["savings", "invest", "brokerage"] },
       { key: "borrow",  i18n: "borrow_tab",
         icon: ICON('<circle cx="7.5" cy="7.5" r="2.4"/><circle cx="16.5" cy="16.5" r="2.4"/><path d="M18.5 5.5 5.5 18.5"/>'),
-        panes: ["loans", "carloan", "mortgage", "refinance"] },
+        panes: ["loans", "carloan", "mortgage", "refinance", "secured"] },
       { key: "friends", i18n: "friends_tab",
         icon: ICON('<circle cx="8.5" cy="9" r="3"/><path d="M3 19.5c.7-3 3-4.5 5.5-4.5s4.8 1.5 5.5 4.5"/><circle cx="17" cy="8" r="2.2"/><path d="M14.6 13.6c.7-.4 1.5-.6 2.4-.6 1.9 0 3.3 1 4 3"/>'),
         panes: ["invite"] },
@@ -161,6 +161,7 @@
       savings: "savings_tab", invest: "invest_tab", brokerage: "brokerage_tab",
       loans: "loans_tab", carloan: "carloan_tab",
       mortgage: "mortgage_tab", refinance: "refinance_tab",
+      secured: "secured_tab",
       invite: "invite_tab",
     };
 
@@ -173,6 +174,7 @@
       mortgage:   (cid) => loadMortgage(cid),
       carloan:    (cid) => loadCarLoan(cid),
       refinance:  (cid) => loadRefinance(cid),
+      secured:    (cid) => loadSecured(cid),
       invite:     (cid) => loadInvite(cid),
     };
 
@@ -358,6 +360,30 @@
         tier_silver:      "Серебро",
         tier_gold:        "Золото",
         tier_platinum:    "Платина",
+        on_deposits:      "к ставке по вкладам",
+        on_cashback:      "к кешбэку",
+        protect_title:    "Защитить выплаты",
+        protect_offer:    "Защитите выплаты по кредиту",
+        protect_covers:   "Покрытие",
+        protect_premium:  "Премия в месяц",
+        protect_discount: "Скидка к ставке",
+        protect_add:      "Добавить страховку",
+        protect_added:    "Страховка добавлена",
+        protect_skip:     "Пропустить",
+        secured_tab:      "Под залог",
+        loading_secured:  "Загрузка...",
+        secured_title:    "Кредит под залог",
+        secured_intro:    "Заложите вклад или портфель — получите более низкую ставку.",
+        collateral_amount:"Сумма залога, ₽",
+        collateral_type:  "Тип залога",
+        collateral_deposit:"Вклад",
+        collateral_investment:"Инвестиции",
+        secured_amount:   "Сумма кредита, ₽",
+        secured_term:     "Срок, месяцев",
+        secured_apply:    "Рассчитать",
+        secured_approved: "Одобрено",
+        secured_declined: "Отклонено",
+        max_loan:         "Максимальная сумма",
         carloan_tab:      "Автокредит",
         loading_carloan:  "Загрузка автокредита...",
         carloan_title:    "Калькулятор автокредита",
@@ -609,6 +635,30 @@
         tier_silver:      "Silver",
         tier_gold:        "Gold",
         tier_platinum:    "Platinum",
+        on_deposits:      "on deposit rates",
+        on_cashback:      "on cashback",
+        protect_title:    "Protect this loan",
+        protect_offer:    "Protect your repayments",
+        protect_covers:   "Covers",
+        protect_premium:  "Monthly premium",
+        protect_discount: "Rate discount",
+        protect_add:      "Add protection",
+        protect_added:    "Protection added",
+        protect_skip:     "Skip",
+        secured_tab:      "Secured",
+        loading_secured:  "Loading...",
+        secured_title:    "Borrow against your savings",
+        secured_intro:    "Pledge a deposit or portfolio and get a lower rate.",
+        collateral_amount:"Collateral amount, ₽",
+        collateral_type:  "Collateral type",
+        collateral_deposit:"Deposit",
+        collateral_investment:"Investments",
+        secured_amount:   "Loan amount, ₽",
+        secured_term:     "Term, months",
+        secured_apply:    "Calculate",
+        secured_approved: "Approved",
+        secured_declined: "Declined",
+        max_loan:         "Max loan amount",
         carloan_tab:      "Car loan",
         loading_carloan:  "Loading car loan...",
         carloan_title:    "Car-loan calculator",
@@ -1019,7 +1069,17 @@
         loyaltyContainer.innerHTML = "";
         return;
       }
-      const perks = (d.perks || []).slice(0, 3);
+      // CIB returns perks as an object {deposit_rate_bonus_pct, cashback_uplift_pct};
+      // accept an array form too. Normalise to friendly bullet strings.
+      let perks = [];
+      if (Array.isArray(d.perks)) {
+        perks = d.perks.slice(0, 3);
+      } else if (d.perks && typeof d.perks === "object") {
+        if (d.perks.deposit_rate_bonus_pct)
+          perks.push(`+${d.perks.deposit_rate_bonus_pct}% ${t("on_deposits")}`);
+        if (d.perks.cashback_uplift_pct)
+          perks.push(`+${d.perks.cashback_uplift_pct}% ${t("on_cashback")}`);
+      }
       const hint = d.next_tier_hint || "";
       loyaltyContainer.innerHTML = `
         <div class="loyalty-card tier-${tier}">
@@ -2590,7 +2650,18 @@
             <div class="decision-icon">${icon}</div>
             <div class="decision-status">${status}</div>
             <div class="decision-detail">${detail}</div>
-          </div>`;
+          </div>` + (isApproved ? `<div id="loan-protect-slot"></div>` : "");
+
+          // On approval, offer loan-protection insurance — fire-and-forget;
+          // if the quote fails for any reason, just don't show the offer.
+          if (isApproved) {
+            offerLoanProtection({
+              client_id: opt.value,
+              loan_amount_rub: d.max_amount_rub || amount,
+              // No term in the consumer-loan flow; default to 36 months.
+              term_months: 36,
+            }, document.getElementById("loan-protect-slot"));
+          }
         } else {
           loanResult.innerHTML = `<div class="alert error">${d.detail || t("error")}</div>`;
         }
@@ -2598,6 +2669,143 @@
         loanResult.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
       }
     });
+
+    // ---- Loan protection insurance opt-in ----
+    async function offerLoanProtection(payload, slot) {
+      if (!slot) return;
+      try {
+        const r = await fetch("/api/insurance/loan-protection-quote", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify(payload),
+        });
+        if (!r.ok) return;
+        const q = await r.json();
+        const coverList = Array.isArray(q.coverage) ? q.coverage : Object.keys(q.coverage || {});
+        slot.innerHTML = `
+          <div class="protect-card">
+            <div class="pc-head">
+              <span class="pc-shield">🛡️</span>
+              <div>
+                <div class="pc-title">${t("protect_offer")}</div>
+                ${q.loan_rate_discount_pct ? `<div class="pc-discount">−${q.loan_rate_discount_pct}% ${t("protect_discount")}</div>` : ""}
+              </div>
+            </div>
+            <div class="pc-row"><span>${t("protect_premium")}</span><b>${fmt.format(Math.round(q.monthly_premium_rub || 0))} ₽</b></div>
+            ${coverList.length ? `<div class="pc-covers">${t("protect_covers")}: ${coverList.join(", ")}</div>` : ""}
+            <div class="pc-actions">
+              <button class="btn primary" id="protect-add-btn">${t("protect_add")}</button>
+              <button class="link-btn" id="protect-skip-btn">${t("protect_skip")}</button>
+            </div>
+          </div>`;
+        document.getElementById("protect-add-btn").addEventListener("click", () => {
+          slot.innerHTML = `<div class="alert ok">${t("protect_added")}</div>`;
+        });
+        document.getElementById("protect-skip-btn").addEventListener("click", () => {
+          slot.innerHTML = "";
+        });
+      } catch (e) {
+        // Silent — insurance offer is best-effort, never blocks approval UX.
+      }
+    }
+
+    // ---- Secured lending pane ----
+    const securedContainer = document.getElementById("secured-container");
+
+    async function loadSecured(clientId) {
+      // No GET state to fetch — just render the calculator with the current customer.
+      const customer = sel.selectedOptions[0];
+      renderSecured({
+        client_id: clientId,
+        customer_name: customer ? customer.dataset.name : "",
+      });
+    }
+
+    function renderSecured(d) {
+      if (!securedContainer) return;
+      securedContainer.innerHTML = `
+        <div class="section-title">${t("secured_title")}</div>
+        <div style="font-size:12px;color:var(--text-2);margin-bottom:12px">${t("secured_intro")}</div>
+        <form id="secured-form" autocomplete="off">
+          <div class="form-row">
+            <label>${t("collateral_type")}</label>
+            <select name="ctype">
+              <option value="deposit">${t("collateral_deposit")}</option>
+              <option value="investment">${t("collateral_investment")}</option>
+            </select>
+          </div>
+          <div class="form-row">
+            <label>${t("collateral_amount")}</label>
+            <input name="collateral" type="number" min="10000" step="10000" placeholder="500 000" />
+          </div>
+          <div class="form-row">
+            <label>${t("secured_amount")}</label>
+            <input name="amount" type="number" min="10000" step="10000" placeholder="300 000" />
+          </div>
+          <div class="form-row">
+            <label>${t("secured_term")}</label>
+            <select name="term">
+              ${[6,12,24,36,60].map(m => `<option value="${m}"${m===12?" selected":""}>${m} ${t("months")}</option>`).join("")}
+            </select>
+          </div>
+          <button class="btn primary" type="submit">${t("secured_apply")}</button>
+        </form>
+        <div id="secured-result"></div>`;
+
+      const form = document.getElementById("secured-form");
+      form.addEventListener("submit", async (ev) => {
+        ev.preventDefault();
+        const out = document.getElementById("secured-result");
+        out.innerHTML = "";
+        const fd = new FormData(form);
+        const amount = +fd.get("amount") || 0;
+        const collateral = +fd.get("collateral") || 0;
+        const ctype = fd.get("ctype");
+        const term = +fd.get("term") || 12;
+        if (!amount || !collateral) {
+          out.innerHTML = `<div class="alert error">${t("fill_amount")}</div>`;
+          return;
+        }
+        try {
+          const r = await fetch("/api/credit/secured-apply", {
+            method: "POST", headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+              client_id: d.client_id,
+              amount_rub: amount, collateral_rub: collateral,
+              collateral_type: ctype, term_months: term,
+            }),
+          });
+          const res = await r.json();
+          if (r.ok && res.approved) {
+            out.innerHTML = `
+              <div class="mortgage-approved">
+                <div class="ma-status">${t("secured_approved")}</div>
+                <div class="ma-pay-label">${t("monthly_payment")}</div>
+                <div class="ma-pay-value">${fmt.format(Math.round(res.monthly_payment_rub || 0))} ₽</div>
+                <div class="ma-pay-sub">${term} ${t("months")} · ${res.rate_pct}%</div>
+                <div class="ma-details">
+                  <div><span>${t("loan_amount")}</span><b>${fmt.format(res.amount_rub || amount)} ₽</b></div>
+                  ${res.max_amount_rub != null ? `<div><span>${t("max_loan")}</span><b>${fmt.format(res.max_amount_rub)} ₽</b></div>` : ""}
+                </div>
+                ${res.explanation ? `<div class="mortgage-explain">${res.explanation}</div>` : ""}
+              </div>`;
+          } else if (r.ok) {
+            const reasons = (res.reasons || []).map(x => `<li>${x}</li>`).join("");
+            out.innerHTML = `<div class="decision-box declined">
+              <div class="decision-icon">&#10007;</div>
+              <div class="decision-status">${t("secured_declined")}</div>
+              <div class="decision-detail">
+                ${reasons ? `<ul style="margin:8px 0;padding-left:18px;text-align:left">${reasons}</ul>` : ""}
+                ${res.max_amount_rub != null ? `${t("max_loan")}: ${fmt.format(res.max_amount_rub)} ₽` : ""}
+              </div>
+            </div>`;
+          } else {
+            out.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+          }
+        } catch (e) {
+          out.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+        }
+      });
+    }
 
     loadClients();
     loadProducts();
