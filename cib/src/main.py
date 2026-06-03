@@ -71,13 +71,16 @@ PRODUCTS = [
     {"id": "deposit-12m", "kind": "deposit", "name": "Депозит 12 месяцев","rate_pct": 17.0, "term_months": 12, "early_withdrawal": False},
     {"id": "deposit-flex","kind": "deposit", "name": "Накопительный счёт","rate_pct": 9.5,  "term_months": None,"early_withdrawal": True},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
-    # Investment products. risk_level 1 (lowest) .. 5 (highest).
-    {"id": "inv-ofz",        "kind": "investment", "subtype": "bond",  "name": "Гособлигации (ОФЗ)",        "risk_level": 1, "expected_return_pct": 13.0, "min_investment_rub": 10_000},
-    {"id": "inv-corp-bond",  "kind": "investment", "subtype": "bond",  "name": "Фонд корпоративных облигаций", "risk_level": 2, "expected_return_pct": 16.0, "min_investment_rub": 10_000},
-    {"id": "inv-etf-index",  "kind": "investment", "subtype": "etf",   "name": "ETF на индекс Мосбиржи",    "risk_level": 3, "expected_return_pct": 18.0, "min_investment_rub": 5_000},
-    {"id": "inv-equity-fund","kind": "investment", "subtype": "fund",  "name": "Фонд акций",                 "risk_level": 3, "expected_return_pct": 19.0, "min_investment_rub": 5_000},
-    {"id": "inv-bluechip",   "kind": "investment", "subtype": "stock", "name": "Голубые фишки (акции)",      "risk_level": 4, "expected_return_pct": 22.0, "min_investment_rub": 30_000},
-    {"id": "inv-growth",     "kind": "investment", "subtype": "stock", "name": "Акции роста",                "risk_level": 5, "expected_return_pct": 28.0, "min_investment_rub": 50_000},
+    # Investment / tradable securities. risk_level 1 (lowest) .. 5 (highest).
+    # cib owns the trading terms: `ticker` (canonical tradable code), `asset_type`,
+    # `lot_size` (units per lot), `commission_pct` (bank fee on trade value),
+    # `min_order_rub`. Backend executes against the `ticker` cib defines here.
+    {"id": "inv-ofz",        "kind": "investment", "subtype": "bond",  "ticker": "SU26240", "asset_type": "bond",        "name": "Гособлигации (ОФЗ)",            "risk_level": 1, "expected_return_pct": 13.0, "lot_size": 1,  "commission_pct": 0.10, "min_order_rub": 10_000, "min_investment_rub": 10_000},
+    {"id": "inv-corp-bond",  "kind": "investment", "subtype": "bond",  "ticker": "RUCORP",  "asset_type": "bond_fund",   "name": "Фонд корпоративных облигаций",  "risk_level": 2, "expected_return_pct": 16.0, "lot_size": 1,  "commission_pct": 0.15, "min_order_rub": 10_000, "min_investment_rub": 10_000},
+    {"id": "inv-etf-index",  "kind": "investment", "subtype": "etf",   "ticker": "TMOS",    "asset_type": "etf",         "name": "ETF на индекс Мосбиржи",        "risk_level": 3, "expected_return_pct": 18.0, "lot_size": 1,  "commission_pct": 0.20, "min_order_rub": 5_000,  "min_investment_rub": 5_000},
+    {"id": "inv-equity-fund","kind": "investment", "subtype": "fund",  "ticker": "SBMX",    "asset_type": "equity_fund", "name": "Фонд акций",                    "risk_level": 3, "expected_return_pct": 19.0, "lot_size": 1,  "commission_pct": 0.20, "min_order_rub": 5_000,  "min_investment_rub": 5_000},
+    {"id": "inv-bluechip",   "kind": "investment", "subtype": "stock", "ticker": "SBER",    "asset_type": "stock",       "name": "Голубые фишки (акции)",         "risk_level": 4, "expected_return_pct": 22.0, "lot_size": 10, "commission_pct": 0.30, "min_order_rub": 30_000, "min_investment_rub": 30_000},
+    {"id": "inv-growth",     "kind": "investment", "subtype": "stock", "ticker": "YDEX",    "asset_type": "stock",       "name": "Акции роста",                   "risk_level": 5, "expected_return_pct": 28.0, "lot_size": 1,  "commission_pct": 0.30, "min_order_rub": 50_000, "min_investment_rub": 50_000},
 ]
 
 # Human-readable investor risk profile names by max acceptable risk level.
@@ -89,19 +92,8 @@ RISK_LEVEL_NAMES = {
     5: "aggressive",
 }
 
-# Bridge between CIB's risk-rated investment products and backend's tradeable
-# instrument symbols (GET /instruments). Symbols on the right are PROVISIONAL —
-# confirm each against backend's live catalogue and adjust. If a symbol is not
-# found in the catalogue, /investment/order-plan returns the plan without a qty
-# and flags it, rather than producing a wrong order.
-INVESTMENT_SYMBOL_MAP = {
-    "inv-ofz":         "OFZ",      # government bonds
-    "inv-corp-bond":   "RUCORP",   # corporate bond fund
-    "inv-etf-index":   "TMOS",     # Moscow Exchange index ETF
-    "inv-equity-fund": "EQMX",     # broad equity fund
-    "inv-bluechip":    "SBER",     # blue-chip representative
-    "inv-growth":      "YDEX",     # growth representative
-}
+# Minimum commission the bank charges on any trade, regardless of size.
+MIN_COMMISSION_RUB = 50.0
 
 
 def investor_profile(customer: dict) -> dict:
@@ -182,6 +174,14 @@ class SuitabilityRequest(BaseModel):
 
 class RecommendRequest(BaseModel):
     client_id: str
+
+
+class OrderCheckRequest(BaseModel):
+    client_id: str
+    product_id: str
+    side: str = "buy"          # "buy" or "sell"
+    qty: int
+    price_rub: float | None = None  # if omitted, priced from backend catalogue
 
 
 @app.get("/health")
@@ -659,7 +659,7 @@ async def investment_order_plan(req: SuitabilityRequest) -> dict:
             "customer_name": customer.get("name"),
         }
 
-    symbol = INVESTMENT_SYMBOL_MAP.get(product["id"])
+    symbol = product["ticker"]
     order: dict = {"side": "buy", "symbol": symbol}
     note = None
     executable = False
@@ -672,11 +672,11 @@ async def investment_order_plan(req: SuitabilityRequest) -> dict:
         available_symbols = [i.get("symbol") for i in instruments if i.get("symbol")]
         match = next((i for i in instruments if i.get("symbol") == symbol), None)
         if match is None:
-            # The provisional symbol guess didn't match. Surface the real
-            # catalogue so the correct code is visible and the map can be fixed.
+            # cib's ticker isn't in backend's catalogue yet. Surface the real
+            # catalogue so backend can align to cib's canonical ticker.
             note = (
-                f"symbol '{symbol}' not found in backend catalogue — set "
-                f"INVESTMENT_SYMBOL_MAP['{product['id']}'] to one of available_symbols"
+                f"ticker '{symbol}' not found in backend catalogue — backend should "
+                f"trade product '{product['id']}' under this ticker (see available_symbols)"
             )
         else:
             price = match["price_rub"]
@@ -703,6 +703,106 @@ async def investment_order_plan(req: SuitabilityRequest) -> dict:
         "execute_via": f"POST {BACKEND_URL}/clients/{req.client_id}/orders",
         "note": note,
         "available_symbols": available_symbols,
+        "customer_name": customer.get("name"),
+    }
+
+
+@app.get("/securities")
+async def securities() -> dict:
+    """Tradable securities with their trading terms. cib is the source of truth
+    for ticker, asset type, lot size, commission and minimum order."""
+    items = [
+        {"id": p["id"], "ticker": p["ticker"], "asset_type": p["asset_type"],
+         "name": p["name"], "risk_level": p["risk_level"],
+         "expected_return_pct": p["expected_return_pct"], "lot_size": p["lot_size"],
+         "commission_pct": p["commission_pct"], "min_order_rub": p["min_order_rub"]}
+        for p in PRODUCTS if p["kind"] == "investment"
+    ]
+    return {"total": len(items), "items": items}
+
+
+@app.post("/investment/order-check")
+async def investment_order_check(req: OrderCheckRequest) -> dict:
+    """Validate a proposed trade and return the commission the bank charges.
+
+    Enforces cib's trading rules: valid side, positive whole lots, minimum order
+    size, suitability (buy), and — for a buy — that the customer holds enough
+    cash to cover trade value plus commission. Backend still executes and is the
+    authority on share ownership for sells.
+    """
+    side = req.side.lower()
+    if side not in ("buy", "sell"):
+        raise HTTPException(status_code=400, detail="side must be 'buy' or 'sell'")
+
+    product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product["kind"] != "investment":
+        raise HTTPException(status_code=400, detail="Product is not a tradable security")
+
+    customer = await _fetch_customer(req.client_id)
+
+    reasons: list[str] = []
+
+    # Quantity / lot rules
+    lot = product["lot_size"]
+    if req.qty <= 0:
+        reasons.append("quantity must be greater than zero")
+    elif req.qty % lot != 0:
+        reasons.append(f"quantity must be a whole multiple of the lot size ({lot})")
+
+    # Price: from the request, else from backend's live catalogue
+    price = req.price_rub
+    if price is None:
+        instruments = await _fetch_instruments()
+        match = next((i for i in instruments if i.get("symbol") == product["ticker"]), None)
+        if match is not None:
+            price = match["price_rub"]
+    if price is None:
+        reasons.append("could not determine a price (pass price_rub or ensure backend prices the ticker)")
+
+    gross_rub = round(price * req.qty, 2) if price is not None else None
+    commission_rub = None
+    total_cost_rub = None
+    net_proceeds_rub = None
+
+    if gross_rub is not None:
+        commission_rub = round(max(gross_rub * product["commission_pct"] / 100, MIN_COMMISSION_RUB), 2)
+
+        # Minimum order size (applies to buys)
+        if side == "buy" and gross_rub < product["min_order_rub"]:
+            reasons.append(f"order value below minimum ({gross_rub} < {product['min_order_rub']})")
+
+        if side == "buy":
+            total_cost_rub = round(gross_rub + commission_rub, 2)
+            # Suitability — only gate buys
+            prof = investor_profile(customer)
+            reasons.extend(_suitability_check(product, prof, gross_rub))
+            # Cash check: must cover trade value plus commission
+            if customer.get("balance_rub", 0) < total_cost_rub:
+                reasons.append(
+                    f"insufficient cash ({customer.get('balance_rub', 0)} < {total_cost_rub} incl. commission)"
+                )
+        else:  # sell
+            net_proceeds_rub = round(gross_rub - commission_rub, 2)
+
+    valid = not reasons
+
+    return {
+        "client_id": req.client_id,
+        "product_id": req.product_id,
+        "ticker": product["ticker"],
+        "asset_type": product["asset_type"],
+        "side": side,
+        "qty": req.qty,
+        "price_rub": price,
+        "gross_rub": gross_rub,
+        "commission_pct": product["commission_pct"],
+        "commission_rub": commission_rub,
+        "total_cost_rub": total_cost_rub,      # buy: cash needed (gross + commission)
+        "net_proceeds_rub": net_proceeds_rub,  # sell: cash received (gross - commission)
+        "valid": valid,
+        "reasons": reasons,
         "customer_name": customer.get("name"),
     }
 

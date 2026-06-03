@@ -78,6 +78,30 @@ The investor profile is derived from age, income and balance (NOT credit risk sc
 
 Returns the list of investment products suitable for a customer, sorted by expected return. Request body: `{ "client_id": "<string>" }`. Returns `{client_id, customer_name, investor_profile, max_risk_level, total, items: [...]}`.
 
+### GET /securities
+
+Tradable securities with their trading terms. CIB is the source of truth for the `ticker`, `asset_type`, `lot_size`, `commission_pct` (bank fee on trade value) and `min_order_rub`. **Backend should execute trades under these tickers.** Returns `{total, items: [{id, ticker, asset_type, name, risk_level, expected_return_pct, lot_size, commission_pct, min_order_rub}]}`.
+
+Tickers: `inv-ofz`→`SU26240` (bond), `inv-corp-bond`→`RUCORP` (bond_fund), `inv-etf-index`→`TMOS` (etf), `inv-equity-fund`→`SBMX` (equity_fund), `inv-bluechip`→`SBER` (stock), `inv-growth`→`YDEX` (stock).
+
+### POST /investment/order-check
+
+Validates a proposed trade and returns the commission. Request body: `{ "client_id": "<string>", "product_id": "<string>", "side": "buy"|"sell", "qty": <int>, "price_rub": <number, optional> }`. If `price_rub` is omitted, CIB prices it from backend's live catalogue by ticker.
+
+Enforces CIB's trading rules: valid side, positive whole lots (multiple of `lot_size`), minimum order value (buys), suitability vs the customer's investor profile (buys), and sufficient cash to cover trade value **plus** commission (buys). Commission = `max(gross × commission_pct%, 50 ₽)`.
+
+```json
+{
+  "client_id": "c-01004", "product_id": "inv-etf-index", "ticker": "TMOS",
+  "asset_type": "etf", "side": "buy", "qty": 100, "price_rub": 95.0,
+  "gross_rub": 9500.0, "commission_pct": 0.2, "commission_rub": 50.0,
+  "total_cost_rub": 9550.0, "net_proceeds_rub": null,
+  "valid": true, "reasons": [], "customer_name": "Олег Кузнецов"
+}
+```
+
+For a `sell`, `net_proceeds_rub` (gross − commission) is returned instead of `total_cost_rub`; share ownership is validated by backend at execution. `valid: false` with `reasons` if any rule fails.
+
 ### POST /investment/order-plan
 
 Bridges a CIB investment product to an executable backend order. Request body: `{ "client_id": "<string>", "product_id": "<string>", "amount_rub": <number> }`.
