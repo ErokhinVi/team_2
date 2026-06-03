@@ -20,9 +20,23 @@ TEAM_NAME = os.environ.get("TEAM_NAME", "team")
 COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8003").rstrip("/")
 
-# Базовый каталог. Кредитный продукт добавляет владелец блока в рамках задачи.
+# Cashback rates by customer segment
+CASHBACK_RATES: dict[str, dict[str, float]] = {
+    "mass":          {"groceries": 2.0, "transport": 1.5, "other": 0.5},
+    "mass_affluent": {"groceries": 3.0, "transport": 2.0, "other": 1.0},
+    "premium":       {"groceries": 5.0, "transport": 3.0, "other": 1.5},
+    "private":       {"groceries": 7.0, "transport": 5.0, "other": 2.0},
+    "sme":           {"groceries": 2.0, "transport": 2.0, "other": 1.0},
+}
+DEFAULT_CASHBACK = {"groceries": 2.0, "transport": 1.5, "other": 0.5}
+
 PRODUCTS = [
-    {"id": "card-debit", "kind": "card", "name": "Дебетовая карта", "segment": "mass"},
+    {
+        "id": "card-debit-cashback",
+        "kind": "card",
+        "name": "Дебетовая карта с кэшбэком",
+        "cashback_categories": {"groceries": "up to 7%", "transport": "up to 5%", "other": "up to 2%"},
+    },
     {"id": "deposit-base", "kind": "deposit", "name": "Срочный депозит", "rate_pct": 14.0},
     {"id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит", "rate_pct": 18.9},
 ]
@@ -39,6 +53,11 @@ class DecideRequest(BaseModel):
     client_id: str
     product_id: str
     amount_rub: float | None = None
+
+
+class ActivateRequest(BaseModel):
+    client_id: str
+    product_id: str
 
 
 @app.get("/health")
@@ -116,6 +135,40 @@ async def credit_decide(req: DecideRequest) -> dict:
         "reasons": reasons,
         "explanation": explanation,
         "customer_name": customer.get("name"),
+    }
+
+
+@app.post("/card/activate")
+async def card_activate(req: ActivateRequest) -> dict:
+    product = next((p for p in PRODUCTS if p["id"] == req.product_id), None)
+    if product is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    if product["kind"] != "card":
+        raise HTTPException(status_code=400, detail="Product is not a card")
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.get(f"{BACKEND_URL}/clients/{req.client_id}")
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="Client not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="Backend unavailable")
+    customer = resp.json()
+
+    segment = customer.get("segment", "mass")
+    rates = CASHBACK_RATES.get(segment, DEFAULT_CASHBACK)
+
+    return {
+        "client_id": req.client_id,
+        "product_id": req.product_id,
+        "activated": True,
+        "customer_name": customer.get("name"),
+        "segment": segment,
+        "cashback_rates_pct": rates,
+        "message": (
+            f"Card activated for {customer.get('name')}. "
+            f"Your cashback: groceries {rates['groceries']}%, "
+            f"transport {rates['transport']}%, other {rates['other']}%."
+        ),
     }
 
 
