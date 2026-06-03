@@ -353,6 +353,14 @@ class MortgageRequest(BaseModel):
     existing_monthly_debt_rub: float | None = None
 
 
+class CarLoanRequest(BaseModel):
+    client_id: str
+    car_price_rub: float
+    down_payment_rub: float
+    term_years: int = 5
+    existing_monthly_debt_rub: float | None = None
+
+
 class RefinanceRequest(BaseModel):
     client_id: str
     current_balance_rub: float
@@ -641,6 +649,113 @@ def _monthly_payment(principal: float, annual_rate_pct: float, months: int) -> f
     if r <= 0:
         return principal / months
     return principal * r / (1 - (1 + r) ** -months)
+
+
+# Car loan parameters (loan secured by the vehicle).
+AUTO_MIN_DOWN_PCT = 10
+AUTO_MAX_TERM_YEARS = 7
+
+
+@app.post("/car-loan/decide")
+async def car_loan_decide(req: CarLoanRequest) -> dict:
+    """Car loan decision (secured by the vehicle). Same request/response shape
+    as /mortgage/decide so retail can reuse the flow. Records the loan on
+    approval. Built to retail's published contract expectation."""
+    product = next((p for p in PRODUCTS if p["id"] == "credit-auto"), None)
+    if product is None:
+        raise HTTPException(status_code=500, detail="Car loan product missing")
+    if req.car_price_rub <= 0 or req.down_payment_rub < 0:
+        raise HTTPException(status_code=400, detail="Invalid car price or down payment")
+    if req.down_payment_rub >= req.car_price_rub:
+        raise HTTPException(status_code=400, detail="Down payment cannot cover the whole car")
+
+    customer = await _fetch_customer(req.client_id)
+    income = customer.get("income_rub", 0)
+    risk = customer.get("risk_score", 1.0)
+
+    loan_rub = req.car_price_rub - req.down_payment_rub
+    down_pct = req.down_payment_rub / req.car_price_rub * 100
+    ltv_pct = loan_rub / req.car_price_rub * 100
+
+    term_years = max(1, min(req.term_years, AUTO_MAX_TERM_YEARS))
+    n = term_years * 12
+    rate = _risk_rate(product["rate_pct"], risk)
+    monthly_payment = round(_monthly_payment(loan_rub, rate, n))
+
+    existing = req.existing_monthly_debt_rub
+    if existing is None:
+        existing = customer.get("existing_monthly_debt_rub", 0.0)
+    total_service = monthly_payment + existing
+
+    reasons: list[str] = []
+    if down_pct < AUTO_MIN_DOWN_PCT:
+        reasons.append(f"down payment below minimum ({down_pct:.0f}% < {AUTO_MIN_DOWN_PCT}%)")
+    if customer.get("has_overdue_history"):
+        reasons.append("overdue payment history")
+    if risk > MAX_RISK_SCORE_STANDARD:
+        reasons.append(f"risk score too high ({risk:.2f})")
+    if income < MIN_INCOME_RUB:
+        reasons.append(f"income below minimum ({income} < {MIN_INCOME_RUB})")
+    if income > 0 and total_service > income * LOAN_MAX_DSTI:
+        reasons.append(
+            f"total debt payments {round(total_service)} exceed "
+            f"{int(LOAN_MAX_DSTI*100)}% of income ({income})"
+        )
+
+    approved = not reasons
+
+    recorded = False
+    if approved:
+        recorded = await _record_product(req.client_id, "auto_credit", {
+            "loan_amount_rub": round(loan_rub, 2), "rate_pct": rate,
+            "term_years": term_years, "monthly_payment_rub": monthly_payment,
+        })
+
+    explanation = ""
+    try:
+        verdict = "approved" if approved else "declined"
+        prompt = (
+            f"A customer applied for a car loan of {loan_rub:.0f} rubles over {term_years} years. "
+            f"Decision: {verdict}. Reasons: {', '.join(reasons) if reasons else 'all checks passed'}. "
+            "Write a short, polite one-sentence explanation for the customer in English."
+        )
+        explanation = await ask_llm(prompt)
+    except LLMError:
+        explanation = ("Your car loan has been approved." if approved
+                       else "We are unable to approve this car loan at this time.")
+
+    eff_apr = ((1 + rate / 100 / 12) ** 12 - 1) * 100
+    decision_id = _audit("/car-loan/decide", req.client_id, {
+        "product_id": "credit-auto", "car_price_rub": req.car_price_rub,
+        "loan_amount_rub": round(loan_rub, 2), "term_years": term_years,
+        "risk_score": risk, "income_rub": income, "approved": approved,
+        "dsti_pct": round(total_service / income * 100, 1) if income > 0 else None,
+        "reasons": reasons,
+    })
+    return {
+        "client_id": req.client_id,
+        "product_id": "credit-auto",
+        "approved": approved,
+        "decision_id": decision_id,
+        "recorded": recorded,
+        "car_price_rub": req.car_price_rub,
+        "down_payment_rub": req.down_payment_rub,
+        "loan_amount_rub": round(loan_rub, 2),
+        "down_payment_pct": round(down_pct, 1),
+        "ltv_pct": round(ltv_pct, 1),
+        "rate_pct": rate,
+        "effective_apr_pct": round(eff_apr, 1),
+        "term_years": term_years,
+        "monthly_payment_rub": monthly_payment,
+        "total_repayment_rub": round(monthly_payment * n),
+        "total_cost_of_credit_rub": round(monthly_payment * n - loan_rub),
+        "dsti_pct": round(total_service / income * 100, 1) if income > 0 else None,
+        "reasons": reasons,
+        "binding_decision_basis": "reasons",
+        "explanation": explanation,
+        "explanation_is_advisory": True,
+        "customer_name": customer.get("name"),
+    }
 
 
 @app.post("/credit/refinance")

@@ -70,6 +70,12 @@ HTTP 404 if client or product is not found. HTTP 400 if product is not a credit 
 
 Decision audit trail for compliance review. Every credit decision (loan, mortgage, refinance) is recorded with its inputs, the risk score, the binding `reasons`, the outcome and a `policy_version`, each with a unique `decision_id` (also returned on the decision responses). Params: `client_id` (optional filter), `limit` (default 50). Returns `{policy_version, total, items: [...]}`, newest first. Records are also emitted to the service logs for durable capture.
 
+### POST /car-loan/decide
+
+Car loan decision (loan secured by the vehicle). Request: `{ "client_id", "car_price_rub", "down_payment_rub", "term_years" (default 5), "existing_monthly_debt_rub" (optional) }`. Same response shape as `/mortgage/decide`: `{approved, loan_amount_rub, down_payment_pct, ltv_pct, rate_pct (risk-based, base 13.9%), effective_apr_pct, term_years, monthly_payment_rub, total_repayment_rub, total_cost_of_credit_rub, dsti_pct, reasons, decision_id, recorded, explanation, customer_name}`.
+
+Declined for: down payment below 10%, overdue history, risk > 0.55, income below 30,000, or total debt payments (incl. existing debt) above 50% of income. Records `auto_credit` on the customer profile on approval.
+
 ### POST /credit/secured-decide
 
 Lending against pledged collateral (a deposit or investment portfolio). Because collateral protects the bank, risk limits relax (risk up to 0.85, DSTI up to 60%) and the rate is lower (base 12.9%, risk-adjusted). Request: `{ "client_id", "amount_rub", "collateral_rub", "collateral_type": "deposit"|"investment", "term_months" }`.
