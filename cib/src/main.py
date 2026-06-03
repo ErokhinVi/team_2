@@ -382,7 +382,12 @@ async def credit_decide(req: DecideRequest) -> dict:
     if is_term_loan and req.amount_rub is not None and income > 0:
         term = max(1, req.term_months)
         payment = _monthly_payment(req.amount_rub, candidate_rate, term)
-        existing = req.existing_monthly_debt_rub or 0.0
+        # Existing debt: explicit request override, else the customer's record.
+        existing = req.existing_monthly_debt_rub
+        if existing is None:
+            existing = customer.get("existing_monthly_debt_rub", 0.0)
+        have_existing = (req.existing_monthly_debt_rub is not None
+                         or "existing_monthly_debt_rub" in customer)
         total_service = existing + payment
         dsti = total_service / income
         residual = income - total_service
@@ -402,7 +407,8 @@ async def credit_decide(req: DecideRequest) -> dict:
             "total_cost_of_credit_rub": round(payment * term - req.amount_rub),
             "effective_apr_pct": round(eff_apr, 1),
             "dsti_pct": round(dsti * 100, 1),
-            "existing_debt_included": req.existing_monthly_debt_rub is not None,
+            "existing_monthly_debt_rub": round(existing),
+            "existing_debt_included": have_existing,
         }
 
     approved = not reasons
@@ -486,7 +492,9 @@ async def mortgage_decide(req: MortgageRequest) -> dict:
     if income < MORTGAGE_MIN_INCOME:
         reasons.append(f"income below minimum ({income} < {MORTGAGE_MIN_INCOME})")
     # Debt-service-to-income, including any existing obligations (aggregate burden).
-    existing = req.existing_monthly_debt_rub or 0.0
+    existing = req.existing_monthly_debt_rub
+    if existing is None:
+        existing = customer.get("existing_monthly_debt_rub", 0.0)
     total_service = monthly_payment + existing
     if income > 0 and total_service > income * MORTGAGE_MAX_DTI:
         reasons.append(
@@ -1328,7 +1336,8 @@ def _preapprove_consumer_loan(c: dict) -> dict | None:
     prod = next(p for p in PRODUCTS if p["id"] == "credit-consumer")
     rate = _risk_rate(prod["rate_pct"], risk)
     # Affordability cap: largest loan whose payment stays within DSTI and residual.
-    max_payment = min(income * LOAN_MAX_DSTI, income - LOAN_MIN_RESIDUAL_RUB)
+    existing = c.get("existing_monthly_debt_rub", 0.0)
+    max_payment = min(income * LOAN_MAX_DSTI, income - LOAN_MIN_RESIDUAL_RUB) - existing
     if max_payment <= 0:
         return None
     mr = rate / 100 / 12
@@ -1388,7 +1397,10 @@ def _prequalify_mortgage(c: dict) -> dict | None:
     term_years = 20
     n = term_years * 12
     r = prod["rate_pct"] / 100 / 12
-    max_payment = income * MORTGAGE_MAX_DTI
+    # Affordable payment after existing debt obligations.
+    max_payment = income * MORTGAGE_MAX_DTI - c.get("existing_monthly_debt_rub", 0.0)
+    if max_payment <= 0:
+        return None
     max_loan = round(max_payment * (1 - (1 + r) ** -n) / r / 100_000) * 100_000
     if max_loan < 500_000:
         return None
