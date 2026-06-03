@@ -55,6 +55,19 @@ Tries backend POST /deposits; if unavailable, returns simulated confirmation
 with `{status, client_id, product_id, amount_rub, term_months, rate_pct,
 estimated_interest_rub, message, source}`.
 
+### GET /api/investments/{client_id}
+Investment portfolio overview. Fetches investment instruments from CIB
+(kind=investment/stock/etf/fund/bond) and holdings from backend
+(GET /portfolio/{client_id} if available). Returns `{client_id,
+customer_name, balance_rub, instruments, holdings, total_invested_rub,
+total_value_rub, gain_rub, gain_pct, portfolio_source}`.
+
+### POST /api/invest
+Place an investment order. Accepts `{client_id, instrument_id, amount_rub}`.
+Tries backend POST /portfolio/buy; if unavailable, returns simulated
+confirmation with `{status, client_id, instrument_id, instrument_name,
+amount_rub, expected_return_pct, projected_value_1y_rub, message, source}`.
+
 ### POST /api/credit-card-payment
 Payment toward credit card balance. Accepts `{client_id, amount_rub}`.
 Tries backend `POST /credit-card-payment`; if unavailable, returns
@@ -70,8 +83,8 @@ amount_rub, max_amount_rub, reason, source}`.
 
 ## Кого я зову у соседей
 
-- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available)
-- cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`), `POST /card/activate` (payload: `{client_id, product_id: "card-debit-cashback"}`, returns personalised cashback rates by segment), `POST /card/credit-limit` (payload: `{client_id, product_id: "card-credit"}`, returns personalised credit limit, rate, grace period)
+- backend: `GET /clients`, `GET /clients/{id}`, `GET /transactions/{id}`, `POST /api/transfer`, `GET /credit-card/{client_id}` (when available), `POST /credit-card-payment` (when available), `GET /deposits/{client_id}` (when available), `POST /deposits` (when available), `GET /portfolio/{client_id}` (when available), `POST /portfolio/buy` (when available)
+- cib: `GET /products`, `POST /credit/decide` (payload: `{client_id, product_id}`), `POST /card/activate` (payload: `{client_id, product_id: "card-debit-cashback"}`, returns personalised cashback rates by segment), `POST /card/credit-limit` (payload: `{client_id, product_id: "card-credit"}`, returns personalised credit limit or secured card fallback), `POST /deposit/open` (payload: `{client_id, product_id, amount_rub}`, returns rate, maturity, projected interest)
 
 ## Где работает блок локально
 

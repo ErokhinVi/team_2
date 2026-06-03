@@ -282,6 +282,7 @@ async def credit_card_info(client_id: str) -> dict:
     segment = customer.get("segment", "mass")
     explanation = ""
     reasons = []
+    actual_product = "card-credit"
     source = "retail-heuristic"
 
     try:
@@ -298,9 +299,12 @@ async def credit_card_info(client_id: str) -> dict:
             grace_days = cib.get("grace_period_days", 55)
             segment = cib.get("segment", segment)
             reasons = cib.get("reasons", [])
-            explanation = "; ".join(reasons) if reasons else (
+            # CIB may offer a secured card for borderline customers
+            actual_product = cib.get("product_id", "card-credit")
+            note = cib.get("note", "")
+            explanation = note or ("; ".join(reasons) if reasons else (
                 "Approved" if eligible else "Declined"
-            )
+            ))
             source = "cib"
     except httpx.HTTPError:
         # CIB unreachable — local heuristic
@@ -332,6 +336,9 @@ async def credit_card_info(client_id: str) -> dict:
 
     card_suffix = str(abs(hash(client_id + "cc")))[-4:]
 
+    product_id = actual_product if source == "cib" else "card-credit"
+    is_secured = product_id == "card-credit-secured"
+
     return {
         "client_id": client_id,
         "customer_name": customer.get("name", ""),
@@ -339,6 +346,8 @@ async def credit_card_info(client_id: str) -> dict:
         "eligible": eligible,
         "explanation": explanation,
         "reasons": reasons,
+        "product_id": product_id,
+        "is_secured": is_secured,
         "card_number_masked": f"**** **** **** {card_suffix}",
         "credit_limit_rub": credit_limit,
         "balance_owed_rub": balance_owed,
@@ -439,8 +448,10 @@ async def deposits_info(client_id: str) -> dict:
 async def deposit_open(payload: dict) -> dict:
     """Open a new deposit / savings account.
 
-    Tries backend POST /deposits. If not available, returns a simulated
-    confirmation so the UI flow is complete.
+    1. Tries CIB POST /deposit/open (returns confirmation with rate,
+       maturity date, projected interest).
+    2. Falls back to backend POST /deposits.
+    3. Falls back to simulated confirmation.
     """
     client_id = payload.get("client_id")
     product_id = payload.get("product_id")
@@ -453,7 +464,39 @@ async def deposit_open(payload: dict) -> dict:
             detail="client_id, product_id and positive amount_rub required",
         )
 
-    # Try real endpoint on backend
+    # Try CIB deposit/open endpoint (has rate, maturity, projected interest)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(
+                f"{CIB_URL}/deposit/open",
+                json={
+                    "client_id": client_id,
+                    "product_id": product_id,
+                    "amount_rub": amount,
+                },
+            )
+        if r.status_code == 200:
+            cib = r.json()
+            return {
+                "status": "ok",
+                "opened": cib.get("opened", True),
+                "client_id": cib.get("client_id", client_id),
+                "product_id": cib.get("product_id", product_id),
+                "product_name": cib.get("product_name", ""),
+                "amount_rub": cib.get("amount_rub", amount),
+                "rate_pct": cib.get("rate_pct", 0),
+                "term_months": cib.get("term_months"),
+                "early_withdrawal": cib.get("early_withdrawal", False),
+                "opened_at": cib.get("opened_at", ""),
+                "matures_at": cib.get("matures_at"),
+                "estimated_interest_rub": cib.get("projected_interest_rub", 0),
+                "customer_name": cib.get("customer_name", ""),
+                "source": "cib",
+            }
+    except httpx.HTTPError:
+        pass
+
+    # Try backend
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             r = await client.post(f"{BACKEND_URL}/deposits", json=payload)
@@ -463,7 +506,6 @@ async def deposit_open(payload: dict) -> dict:
         pass
 
     # Fallback: simulated deposit opening
-    # Get rate from CIB product catalogue
     rate_pct = 14.0
     try:
         products = await _cib_get("/products")
@@ -485,5 +527,135 @@ async def deposit_open(payload: dict) -> dict:
         "rate_pct": rate_pct,
         "estimated_interest_rub": estimated_interest,
         "message": "Deposit opened successfully",
+        "source": "retail-simulated",
+    }
+
+
+# ---- Investments ----
+
+# Demo investment instruments shown until CIB lists real ones in /products.
+# Each: id, name, kind, expected annual return %, risk level.
+FALLBACK_INSTRUMENTS = [
+    {"id": "inv-etf-moex", "kind": "investment", "name": "MOEX Index ETF",
+     "description": "Broad Russian equity index fund", "expected_return_pct": 12.0, "risk": "medium"},
+    {"id": "inv-bond-ofz", "kind": "investment", "name": "Government Bonds (OFZ)",
+     "description": "Low-risk state bonds", "expected_return_pct": 9.0, "risk": "low"},
+    {"id": "inv-etf-tech", "kind": "investment", "name": "Tech Growth ETF",
+     "description": "High-growth technology basket", "expected_return_pct": 18.0, "risk": "high"},
+    {"id": "inv-gold", "kind": "investment", "name": "Gold Fund",
+     "description": "Inflation hedge, precious metals", "expected_return_pct": 7.5, "risk": "low"},
+]
+
+
+@app.get("/api/investments/{client_id}")
+async def investments_info(client_id: str) -> dict:
+    """Investment portfolio overview for a customer.
+
+    1. Fetches investment products from CIB (kind=investment/stock/etf/fund/bond).
+    2. Tries backend GET /portfolio/{client_id} for real holdings.
+    3. Falls back to demo instruments so the screen is alive immediately.
+    """
+    customer = await _backend_get(f"/clients/{client_id}")
+
+    # Investment products from CIB
+    instruments = []
+    try:
+        products = await _cib_get("/products")
+        instruments = [
+            p for p in (products.get("items") or [])
+            if p.get("kind") in ("investment", "stock", "etf", "fund", "bond")
+        ]
+    except Exception:
+        pass
+    if not instruments:
+        instruments = FALLBACK_INSTRUMENTS
+
+    # Try real portfolio from backend
+    holdings = []
+    total_invested = 0
+    total_value = 0
+    portfolio_source = "none"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(f"{BACKEND_URL}/portfolio/{client_id}")
+        if r.status_code == 200:
+            pf = r.json()
+            holdings = pf.get("items", [])
+            total_invested = sum(h.get("invested_rub", 0) for h in holdings)
+            total_value = sum(h.get("current_value_rub", 0) for h in holdings)
+            portfolio_source = "backend"
+    except httpx.HTTPError:
+        pass
+
+    gain = total_value - total_invested
+    gain_pct = round((gain / total_invested) * 100, 2) if total_invested else 0
+
+    return {
+        "client_id": client_id,
+        "customer_name": customer.get("name", ""),
+        "balance_rub": customer.get("balance_rub", 0),
+        "instruments": instruments,
+        "holdings": holdings,
+        "total_invested_rub": total_invested,
+        "total_value_rub": total_value,
+        "gain_rub": gain,
+        "gain_pct": gain_pct,
+        "portfolio_source": portfolio_source,
+    }
+
+
+@app.post("/api/invest")
+async def invest(payload: dict) -> dict:
+    """Place an investment order.
+
+    Tries backend POST /portfolio/buy. If unavailable, returns a simulated
+    confirmation with a projected one-year value based on expected return.
+    """
+    client_id = payload.get("client_id")
+    instrument_id = payload.get("instrument_id")
+    amount = payload.get("amount_rub", 0)
+
+    if not client_id or not instrument_id or amount <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail="client_id, instrument_id and positive amount_rub required",
+        )
+
+    # Try backend
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(f"{BACKEND_URL}/portfolio/buy", json=payload)
+        if r.status_code == 200:
+            return r.json()
+    except httpx.HTTPError:
+        pass
+
+    # Fallback: simulated order with projected value
+    expected_return = 10.0
+    name = instrument_id
+    pool = []
+    try:
+        products = await _cib_get("/products")
+        pool = products.get("items", [])
+    except Exception:
+        pass
+    pool = pool + FALLBACK_INSTRUMENTS
+    for p in pool:
+        if p.get("id") == instrument_id:
+            expected_return = p.get("expected_return_pct", expected_return)
+            name = p.get("name", instrument_id)
+            break
+
+    projected_value = round(amount * (1 + expected_return / 100), 2)
+
+    return {
+        "status": "ok",
+        "client_id": client_id,
+        "instrument_id": instrument_id,
+        "instrument_name": name,
+        "amount_rub": amount,
+        "expected_return_pct": expected_return,
+        "projected_value_1y_rub": projected_value,
+        "message": "Investment order placed",
         "source": "retail-simulated",
     }

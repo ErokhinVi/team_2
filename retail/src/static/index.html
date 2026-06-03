@@ -9,391 +9,464 @@
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg:        #f6f3ec;
-      --surface:   #ffffff;
-      --rule:      #e3ddcc;
-      --text:      #1f1d18;
-      --text-2:    #5a564c;
-      --muted:     #8a857a;
+      --bg:        #FAF6EA;
+      --surface:   #FFFFFF;
+      --rule:      #EFE7D4;
+      --text:      #1A1712;
+      --text-2:    #6B6354;
+      --muted:     #A8A091;
       --raiff:     #FFE600;
-      --raiff-soft:#fff7a0;
-      --good:      #2f7a3a;
-      --warn:      #a4662d;
-      --bad:       #b14b32;
+      --raiff-deep:#FFD200;
+      --ink:       #1C1A15;
+      --good:      #2E7D46;
+      --warn:      #B07A1E;
+      --bad:       #C0492F;
     }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0; padding: 0;
-      background: var(--bg);
+      background: #ebe5d6;
       color: var(--text);
       font-family: "Geist", -apple-system, system-ui, sans-serif;
       font-size: 14px;
       min-height: 100vh;
+      -webkit-font-smoothing: antialiased;
     }
     .phone {
-      max-width: 420px; margin: 0 auto;
-      background: var(--surface);
+      max-width: 430px; margin: 0 auto;
+      background: var(--bg);
       min-height: 100vh;
-      box-shadow: 0 0 60px rgba(60,52,40,0.08);
+      position: relative;
+      overflow-x: hidden;
+      box-shadow: 0 0 80px rgba(40,34,20,0.12);
     }
+
+    /* ===== Hero ===== */
     .topbar {
-      background: var(--text); color: var(--bg);
-      padding: 28px 22px 16px;
-      display: flex; justify-content: space-between; align-items: flex-start;
+      background: linear-gradient(160deg, #FFEC4D 0%, var(--raiff) 45%, var(--raiff-deep) 100%);
+      color: var(--text);
+      padding: 24px 22px 8px;
+      display: flex; justify-content: space-between; align-items: center;
     }
     .topbar .left { flex: 1; }
     .topbar .logo {
-      width: 26px; height: 26px;
-      background: var(--raiff); display: inline-block;
-      border-radius: 4px; vertical-align: middle;
-      margin-right: 10px;
+      width: 30px; height: 30px;
+      background: var(--ink); display: inline-block;
+      border-radius: 9px; vertical-align: middle;
+      margin-right: 11px; position: relative;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.18);
+    }
+    .topbar .logo::after {
+      content: ""; position: absolute; inset: 9px;
+      border-radius: 3px; background: var(--raiff);
     }
     .topbar .name {
-      font-weight: 500; font-size: 16px; vertical-align: middle;
-    }
-    .topbar .who {
-      font-size: 12px; color: rgba(255,255,255,0.6);
-      margin-top: 4px;
-    }
-    .lang-toggle {
-      background: rgba(255,255,255,0.12);
-      border: 1px solid rgba(255,255,255,0.2);
-      color: var(--bg);
-      font-family: inherit; font-size: 12px; font-weight: 500;
-      padding: 5px 10px;
-      border-radius: 14px;
-      cursor: pointer;
-      letter-spacing: 0.03em;
-      transition: background 160ms;
-      white-space: nowrap;
-      margin-top: 2px;
-    }
-    .lang-toggle:hover { background: rgba(255,255,255,0.22); }
-
-    .balance {
-      padding: 26px 22px 22px;
-      background: linear-gradient(180deg, var(--text) 0%, #2c2823 100%);
-      color: var(--bg);
-    }
-    .balance .l {
-      font-size: 11px; opacity: 0.6;
-      letter-spacing: 0.12em; text-transform: uppercase;
-    }
-    .balance .v {
-      font-size: 32px; font-weight: 500; margin-top: 6px;
+      font-weight: 600; font-size: 17px; vertical-align: middle;
       letter-spacing: -0.01em;
     }
-    .balance .v .cur { font-size: 18px; opacity: 0.7; margin-left: 4px; }
+    .topbar .who {
+      font-size: 12px; color: rgba(26,23,18,0.55);
+      margin-top: 4px; font-weight: 500;
+    }
+    .lang-toggle {
+      background: var(--ink); color: var(--raiff);
+      border: 0;
+      font-family: inherit; font-size: 12px; font-weight: 600;
+      padding: 7px 13px;
+      border-radius: 20px;
+      cursor: pointer;
+      letter-spacing: 0.06em;
+      transition: transform 140ms, opacity 140ms;
+      white-space: nowrap;
+    }
+    .lang-toggle:hover { opacity: 0.88; }
+    .lang-toggle:active { transform: scale(0.94); }
 
+    .balance {
+      padding: 8px 24px 32px;
+      background: linear-gradient(180deg, var(--raiff-deep) 0%, #FFE83A 100%);
+      color: var(--text);
+      position: relative; overflow: hidden;
+    }
+    .balance::before {
+      content: ""; position: absolute;
+      top: -60px; right: -40px;
+      width: 180px; height: 180px;
+      background: radial-gradient(circle, rgba(255,255,255,0.55), transparent 70%);
+      border-radius: 50%;
+    }
+    .balance .l {
+      font-size: 11px; opacity: 0.55; font-weight: 600;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      position: relative;
+    }
+    .balance .v {
+      font-size: 44px; font-weight: 700; margin-top: 4px;
+      letter-spacing: -0.025em; position: relative;
+      font-variant-numeric: tabular-nums;
+    }
+    .balance .v .cur { font-size: 22px; font-weight: 600; opacity: 0.5; margin-left: 6px; }
+
+    /* ===== Profile picker ===== */
+    .client-picker {
+      padding: 16px 22px 6px;
+      background: var(--bg);
+      margin-top: -18px;
+      border-radius: 22px 22px 0 0;
+      position: relative; z-index: 2;
+    }
+    .client-picker label {
+      font-size: 10px; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;
+    }
+    .client-picker select {
+      width: 100%; margin-top: 7px; padding: 13px 38px 13px 15px;
+      border: 0; background: var(--surface);
+      border-radius: 14px;
+      font-family: inherit; font-size: 14px; font-weight: 500;
+      color: var(--text);
+      box-shadow: 0 6px 20px rgba(40,34,20,0.07);
+      appearance: none; -webkit-appearance: none;
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8' fill='none'><path d='M1 1l5 5 5-5' stroke='%23A8A091' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+      background-repeat: no-repeat; background-position: right 16px center;
+    }
+
+    /* ===== Bottom navigation ===== */
     .tabs {
-      display: flex; gap: 0;
-      background: var(--surface);
-      border-bottom: 1px solid var(--rule);
-      position: sticky; top: 0; z-index: 5;
+      position: fixed;
+      left: 50%; transform: translateX(-50%);
+      bottom: 0; width: 100%; max-width: 430px;
+      display: flex; gap: 2px;
+      background: rgba(255,255,255,0.88);
+      backdrop-filter: saturate(160%) blur(14px);
+      -webkit-backdrop-filter: saturate(160%) blur(14px);
+      border-top: 1px solid var(--rule);
+      padding: 9px 6px calc(9px + env(safe-area-inset-bottom));
+      z-index: 50;
     }
     .tabs button {
       flex: 1;
-      padding: 14px 4px;
-      background: transparent; border: 0;
-      font-family: inherit; font-size: 12px; font-weight: 500;
-      color: var(--text-2);
+      display: flex; flex-direction: column; align-items: center; gap: 3px;
+      padding: 6px 2px;
+      background: transparent; border: 0; border-radius: 14px;
+      font-family: inherit; font-size: 10px; font-weight: 600;
+      color: var(--muted);
       cursor: pointer; position: relative;
-      transition: color 160ms;
+      transition: color 140ms, transform 140ms;
     }
+    .tabs button::before {
+      font-size: 19px; line-height: 1;
+    }
+    .tab[data-tab="transfers"]::before  { content: "\1F3E0"; }
+    .tab[data-tab="card"]::before       { content: "\1F4B3"; }
+    .tab[data-tab="creditcard"]::before { content: "\1FA99"; }
+    .tab[data-tab="savings"]::before    { content: "\1F4B0"; }
+    .tab[data-tab="invest"]::before     { content: "\1F4CA"; }
+    .tab[data-tab="loans"]::before      { content: "\1F4C8"; }
     .tabs button.active { color: var(--text); }
-    .tabs button.active::after {
-      content: ""; position: absolute;
-      left: 18%; right: 18%; bottom: 0;
-      height: 2px; background: var(--text);
-    }
+    .tabs button.active::before { transform: scale(1.12); }
+    .tabs button.active::after { content: none; }
 
-    .tab-pane { display: none; padding: 22px; }
-    .tab-pane.show { display: block; }
+    .tab-pane { display: none; padding: 20px 22px 112px; }
+    .tab-pane.show { display: block; animation: fadeUp 260ms ease; }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(7px); }
+      to   { opacity: 1; transform: none; }
+    }
 
     .section-title {
       font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
-      color: var(--muted); margin: 6px 0 10px;
+      color: var(--muted); margin: 16px 0 12px; font-weight: 600;
     }
 
     .form-row { margin-bottom: 14px; }
     .form-row label {
       display: block; font-size: 12px;
-      color: var(--text-2); margin-bottom: 4px;
+      color: var(--text-2); margin-bottom: 6px; font-weight: 500;
     }
     .form-row input, .form-row select {
-      width: 100%; padding: 10px 12px;
-      background: var(--bg); color: var(--text);
-      border: 1px solid var(--rule); border-radius: 6px;
-      font-family: inherit; font-size: 14px;
-      transition: border-color 160ms;
+      width: 100%; padding: 14px 15px;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--rule); border-radius: 14px;
+      font-family: inherit; font-size: 15px;
+      transition: border-color 160ms, box-shadow 160ms;
     }
     .form-row input:focus, .form-row select:focus {
-      outline: 0; border-color: var(--text);
+      outline: 0; border-color: var(--raiff-deep);
+      box-shadow: 0 0 0 4px rgba(255,210,0,0.25);
     }
 
     .btn {
-      width: 100%; padding: 13px;
-      background: var(--text); color: var(--bg);
-      border: 0; border-radius: 8px;
-      font-family: inherit; font-weight: 500; font-size: 14px;
+      width: 100%; padding: 16px;
+      background: var(--ink); color: #fff;
+      border: 0; border-radius: 16px;
+      font-family: inherit; font-weight: 600; font-size: 15px;
       letter-spacing: 0.01em; cursor: pointer;
-      transition: background 160ms;
+      transition: transform 140ms, box-shadow 140ms, background 140ms, filter 140ms;
+      box-shadow: 0 8px 22px rgba(28,26,21,0.18);
     }
-    .btn:hover { background: #2c2823; }
-    .btn:active { transform: translateY(1px); }
+    .btn:hover { background: #2a261d; }
+    .btn:active { transform: translateY(1px) scale(0.995); }
     .btn.primary {
-      background: var(--raiff); color: var(--text);
+      background: linear-gradient(180deg, #FFEC4D, var(--raiff));
+      color: var(--text);
+      box-shadow: 0 8px 22px rgba(255,214,0,0.4);
     }
-    .btn.primary:hover { background: #fff04a; }
+    .btn.primary:hover { filter: brightness(1.03); }
 
-    .tx-list { display: flex; flex-direction: column; gap: 0; }
+    .tx-list {
+      display: flex; flex-direction: column; gap: 0;
+      background: var(--surface); border-radius: 18px; padding: 4px 16px;
+      box-shadow: 0 6px 20px rgba(40,34,20,0.06);
+    }
     .tx-row {
-      padding: 12px 0;
+      padding: 14px 0;
       border-bottom: 1px solid var(--rule);
       display: grid; grid-template-columns: 1fr auto;
-      gap: 8px;
+      gap: 8px; align-items: center;
     }
     .tx-row:last-child { border-bottom: 0; }
-    .tx-row .desc { font-size: 13px; }
-    .tx-row .ts { font-size: 11px; color: var(--muted); margin-top: 2px; }
-    .tx-row .amt { font-weight: 500; text-align: right; font-variant-numeric: tabular-nums; }
+    .tx-row .desc { font-size: 14px; font-weight: 500; }
+    .tx-row .ts { font-size: 11px; color: var(--muted); margin-top: 3px; }
+    .tx-row .amt { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; font-size: 15px; }
     .tx-row .amt.minus { color: var(--text); }
     .tx-row .amt.plus  { color: var(--good); }
 
     .empty {
-      text-align: center; padding: 60px 0;
+      text-align: center; padding: 44px 0;
       color: var(--muted); font-size: 13px;
     }
 
     .alert {
-      margin-top: 18px; padding: 12px 14px;
-      border-radius: 6px;
+      margin-top: 16px; padding: 14px 16px;
+      border-radius: 14px;
       font-size: 13px; line-height: 1.5;
     }
-    .alert.ok    { background: #e8f0e2; color: var(--good); }
-    .alert.info  { background: #f0e8d0; color: var(--warn); }
-    .alert.error { background: #f4dfd6; color: var(--bad); }
+    .alert.ok    { background: #E7F2E7; color: var(--good); }
+    .alert.info  { background: #FBF0D2; color: var(--warn); }
+    .alert.error { background: #F8E2DA; color: var(--bad); }
 
-    .client-picker { padding: 14px 22px; border-bottom: 1px solid var(--rule); }
-    .client-picker label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.1em; }
-    .client-picker select { width: 100%; margin-top: 4px; padding: 8px 10px;
-      border: 1px solid var(--rule); background: var(--surface); border-radius: 6px;
-      font-family: inherit; font-size: 13px; }
-
-    /* ---- Loan product cards ---- */
+    /* ---- Product cards ---- */
     .product-cards { display: flex; flex-direction: column; gap: 12px; }
     .product-card {
-      border: 1px solid var(--rule);
-      border-radius: 10px;
-      padding: 16px;
-      background: var(--bg);
+      border: 0; border-radius: 18px;
+      padding: 18px;
+      background: var(--surface);
       cursor: pointer;
-      transition: border-color 160ms, box-shadow 160ms;
+      box-shadow: 0 6px 20px rgba(40,34,20,0.06);
+      transition: transform 140ms, box-shadow 140ms;
     }
-    .product-card:hover { border-color: var(--text-2); }
+    .product-card:hover { transform: translateY(-1px); }
     .product-card.selected {
-      border-color: var(--text);
-      box-shadow: 0 0 0 1px var(--text);
+      box-shadow: 0 0 0 2px var(--raiff-deep), 0 10px 24px rgba(255,214,0,0.25);
     }
     .product-card .pc-name {
-      font-weight: 500; font-size: 15px; margin-bottom: 4px;
+      font-weight: 600; font-size: 15px; margin-bottom: 4px;
     }
     .product-card .pc-detail {
       font-size: 12px; color: var(--text-2);
     }
     .product-card .pc-rate {
-      display: inline-block; margin-top: 8px;
-      background: var(--raiff); color: var(--text);
-      font-size: 12px; font-weight: 600;
-      padding: 3px 10px; border-radius: 10px;
+      display: inline-block; margin-top: 10px;
+      background: linear-gradient(180deg, #FFEC4D, var(--raiff)); color: var(--text);
+      font-size: 12px; font-weight: 700;
+      padding: 4px 12px; border-radius: 20px;
     }
 
     .loan-result { margin-top: 18px; }
     .loan-result .decision-box, .cc-decision-box {
-      padding: 18px; border-radius: 10px; text-align: center;
+      padding: 22px; border-radius: 18px; text-align: center;
     }
     .loan-result .decision-box.approved, .cc-decision-box.approved {
-      background: #e8f0e2; color: var(--good);
+      background: #E7F2E7; color: var(--good);
     }
     .loan-result .decision-box.declined, .cc-decision-box.declined {
-      background: #f4dfd6; color: var(--bad);
+      background: #F8E2DA; color: var(--bad);
     }
-    .decision-icon { font-size: 32px; margin-bottom: 6px; }
-    .decision-status { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+    .decision-icon { font-size: 34px; margin-bottom: 8px; }
+    .decision-status { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
     .decision-detail { font-size: 13px; opacity: 0.85; }
 
     .products-loading {
-      text-align: center; padding: 40px 0;
+      text-align: center; padding: 44px 0;
       color: var(--muted); font-size: 13px;
     }
 
-    /* ---- Card visuals (shared between debit and credit) ---- */
+    /* ---- Card visuals (debit + credit) ---- */
     .debit-card, .credit-card-visual {
-      border-radius: 16px;
-      padding: 24px 22px 20px;
-      color: #f6f3ec;
+      border-radius: 22px;
+      padding: 22px;
       position: relative;
       overflow: hidden;
       margin-bottom: 18px;
+      box-shadow: 0 16px 36px rgba(40,34,20,0.22);
+      aspect-ratio: 1.586;
+      display: flex; flex-direction: column; justify-content: space-between;
     }
     .debit-card {
-      background: linear-gradient(135deg, #1f1d18 0%, #3a362e 60%, #1f1d18 100%);
+      background: linear-gradient(135deg, #FFE83A 0%, var(--raiff) 45%, var(--raiff-deep) 100%);
+      color: var(--text);
     }
     .credit-card-visual {
-      background: linear-gradient(135deg, #1a2744 0%, #2d4a7a 50%, #1a2744 100%);
+      background: linear-gradient(135deg, #2a2620 0%, #3d3730 55%, #211d18 100%);
+      color: #FAF6EA;
     }
     .debit-card::before, .credit-card-visual::before {
       content: "";
       position: absolute;
-      top: -30px; right: -30px;
-      width: 120px; height: 120px;
+      top: -40px; right: -30px;
+      width: 150px; height: 150px;
       border-radius: 50%;
-      opacity: 0.15;
     }
-    .debit-card::before { background: var(--raiff); }
-    .credit-card-visual::before { background: #7eb3ff; }
+    .debit-card::before { background: rgba(255,255,255,0.55); opacity: 0.6; }
+    .credit-card-visual::before { background: var(--raiff); opacity: 0.16; }
     .card-bank {
-      font-size: 11px; letter-spacing: 0.15em;
-      text-transform: uppercase; opacity: 0.5;
-      margin-bottom: 20px;
+      font-size: 12px; letter-spacing: 0.16em;
+      text-transform: uppercase; opacity: 0.6; font-weight: 700;
+      position: relative;
     }
     .card-number {
-      font-size: 18px; font-weight: 400;
-      letter-spacing: 0.12em;
+      font-size: 19px; font-weight: 500;
+      letter-spacing: 0.14em;
       font-variant-numeric: tabular-nums;
-      margin-bottom: 18px;
+      margin-top: auto; position: relative;
     }
     .card-bottom {
       display: flex; justify-content: space-between; align-items: flex-end;
+      position: relative;
     }
     .card-holder {
       font-size: 12px; text-transform: uppercase;
-      letter-spacing: 0.08em; opacity: 0.8;
+      letter-spacing: 0.08em; opacity: 0.85; font-weight: 600;
     }
     .card-type {
-      font-size: 11px; font-weight: 600;
-      padding: 3px 10px; border-radius: 8px;
+      font-size: 11px; font-weight: 700;
+      padding: 4px 11px; border-radius: 20px;
     }
     .debit-card .card-type {
-      background: var(--raiff); color: var(--text);
+      background: var(--ink); color: var(--raiff);
     }
     .credit-card-visual .card-type {
-      background: #7eb3ff; color: #1a2744;
+      background: var(--raiff); color: var(--ink);
     }
 
     .cashback-summary, .cc-summary {
-      display: flex; gap: 12px; margin-bottom: 18px;
+      display: flex; gap: 10px; margin-bottom: 16px;
     }
     .cashback-box, .cc-box {
       flex: 1;
-      background: var(--bg);
-      border-radius: 10px;
-      padding: 14px;
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 16px 12px;
       text-align: center;
+      box-shadow: 0 6px 18px rgba(40,34,20,0.06);
     }
     .cashback-box .cb-value, .cc-box .cc-value {
-      font-size: 22px; font-weight: 600;
+      font-size: 22px; font-weight: 700;
     }
     .cashback-box .cb-value { color: var(--good); }
     .cc-box .cc-value { color: var(--text); }
     .cc-box .cc-value.warn { color: var(--warn); }
     .cashback-box .cb-label, .cc-box .cc-label {
-      font-size: 11px; color: var(--muted);
+      font-size: 10px; color: var(--muted);
       text-transform: uppercase;
       letter-spacing: 0.08em;
-      margin-top: 4px;
+      margin-top: 6px; font-weight: 600;
     }
 
     .cashback-tx-row {
-      padding: 10px 0;
+      padding: 12px 0;
       border-bottom: 1px solid var(--rule);
       display: grid; grid-template-columns: 1fr auto auto;
       gap: 8px;
       align-items: center;
     }
     .cashback-tx-row:last-child { border-bottom: 0; }
-    .cashback-tx-row .cb-tx-desc { font-size: 13px; }
+    .cashback-tx-row .cb-tx-desc { font-size: 13px; font-weight: 500; }
     .cashback-tx-row .cb-tx-ts { font-size: 11px; color: var(--muted); margin-top: 2px; }
     .cashback-tx-row .cb-tx-amount { font-size: 13px; color: var(--text-2); text-align: right; }
     .cashback-tx-row .cb-tx-cashback {
-      font-size: 13px; font-weight: 600; color: var(--good);
+      font-size: 13px; font-weight: 700; color: var(--good);
       text-align: right; white-space: nowrap;
     }
 
     /* ---- Credit card specifics ---- */
     .cc-limit-bar {
-      background: var(--bg); border-radius: 8px;
+      background: var(--rule); border-radius: 10px;
       height: 10px; margin-bottom: 18px;
       overflow: hidden;
     }
     .cc-limit-bar .cc-used {
-      height: 100%; border-radius: 8px;
+      height: 100%; border-radius: 10px;
       background: var(--warn);
-      transition: width 300ms;
+      transition: width 400ms;
     }
     .cc-limit-bar .cc-used.low { background: var(--good); }
     .cc-limit-bar .cc-used.high { background: var(--bad); }
 
     .cc-details {
-      display: flex; flex-direction: column; gap: 8px;
+      display: flex; flex-direction: column; gap: 12px;
       margin-bottom: 18px;
+      background: var(--surface); border-radius: 16px; padding: 16px;
+      box-shadow: 0 6px 18px rgba(40,34,20,0.06);
     }
     .cc-detail-row {
       display: flex; justify-content: space-between;
       font-size: 13px;
     }
     .cc-detail-row .cc-dl { color: var(--text-2); }
-    .cc-detail-row .cc-dv { font-weight: 500; }
+    .cc-detail-row .cc-dv { font-weight: 600; }
 
     .cc-not-eligible {
-      text-align: center; padding: 30px 0;
+      text-align: center; padding: 40px 20px;
       color: var(--muted); font-size: 14px;
       line-height: 1.6;
     }
 
     /* ---- Savings / Deposits ---- */
     .deposit-offer {
-      border: 1px solid var(--rule);
-      border-radius: 12px;
+      border: 0; border-radius: 18px;
       padding: 18px;
-      background: var(--bg);
+      background: var(--surface);
       margin-bottom: 12px;
       cursor: pointer;
-      transition: border-color 160ms, box-shadow 160ms;
+      box-shadow: 0 6px 20px rgba(40,34,20,0.06);
+      transition: transform 140ms, box-shadow 140ms;
     }
-    .deposit-offer:hover { border-color: var(--text-2); }
+    .deposit-offer:hover { transform: translateY(-1px); }
     .deposit-offer.selected {
-      border-color: var(--text);
-      box-shadow: 0 0 0 1px var(--text);
+      box-shadow: 0 0 0 2px var(--raiff-deep), 0 10px 24px rgba(255,214,0,0.25);
     }
     .deposit-offer .do-top {
       display: flex; justify-content: space-between; align-items: center;
       margin-bottom: 6px;
     }
-    .deposit-offer .do-name { font-weight: 500; font-size: 15px; }
+    .deposit-offer .do-name { font-weight: 600; font-size: 15px; }
     .deposit-offer .do-rate {
-      font-size: 18px; font-weight: 700; color: var(--good);
+      font-size: 20px; font-weight: 800; color: var(--good);
     }
+    .deposit-offer .do-rate small { font-size: 10px; font-weight: 600; color: var(--muted); }
     .deposit-offer .do-detail { font-size: 12px; color: var(--text-2); }
 
     .savings-hero {
-      background: linear-gradient(135deg, #1a3a2a 0%, #2a5a3a 50%, #1a3a2a 100%);
-      border-radius: 16px;
-      padding: 22px;
+      background: linear-gradient(135deg, #1f3b29 0%, #2f5a3c 55%, #1c3325 100%);
+      border-radius: 20px;
+      padding: 24px;
       color: #f6f3ec;
       margin-bottom: 18px;
       text-align: center;
+      box-shadow: 0 14px 32px rgba(31,59,41,0.3);
     }
     .savings-hero .sh-value {
-      font-size: 28px; font-weight: 600; margin-bottom: 4px;
+      font-size: 30px; font-weight: 700; margin-bottom: 4px;
     }
     .savings-hero .sh-label {
       font-size: 11px; opacity: 0.6;
-      text-transform: uppercase; letter-spacing: 0.1em;
+      text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;
     }
     .savings-hero .sh-interest {
-      margin-top: 10px;
-      font-size: 14px; color: var(--raiff); font-weight: 500;
+      margin-top: 12px;
+      font-size: 14px; color: var(--raiff); font-weight: 600;
     }
 
     .existing-deposit {
@@ -404,9 +477,71 @@
     .existing-deposit .ed-top {
       display: flex; justify-content: space-between; margin-bottom: 4px;
     }
-    .existing-deposit .ed-name { font-size: 13px; font-weight: 500; }
-    .existing-deposit .ed-amount { font-size: 13px; font-weight: 600; }
+    .existing-deposit .ed-name { font-size: 13px; font-weight: 600; }
+    .existing-deposit .ed-amount { font-size: 13px; font-weight: 700; }
     .existing-deposit .ed-detail { font-size: 12px; color: var(--muted); }
+
+    /* ---- Investments ---- */
+    .invest-hero {
+      background: linear-gradient(135deg, #2a1f47 0%, #4a3a82 55%, #241a3f 100%);
+      border-radius: 20px;
+      padding: 24px;
+      color: #f4f1fb;
+      margin-bottom: 18px;
+      text-align: center;
+      box-shadow: 0 14px 32px rgba(42,31,71,0.32);
+    }
+    .invest-hero .ih-label {
+      font-size: 11px; opacity: 0.6;
+      text-transform: uppercase; letter-spacing: 0.12em; font-weight: 600;
+    }
+    .invest-hero .ih-value { font-size: 30px; font-weight: 700; margin: 4px 0; }
+    .invest-hero .ih-gain { font-size: 14px; font-weight: 600; }
+    .invest-hero .ih-gain.up   { color: #7CF2A8; }
+    .invest-hero .ih-gain.down { color: #FF9B8A; }
+    .invest-hero .ih-gain.flat { color: rgba(244,241,251,0.7); }
+
+    .instrument {
+      border: 0; border-radius: 18px;
+      padding: 18px;
+      background: var(--surface);
+      margin-bottom: 12px;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(40,34,20,0.06);
+      transition: transform 140ms, box-shadow 140ms;
+    }
+    .instrument:hover { transform: translateY(-1px); }
+    .instrument.selected {
+      box-shadow: 0 0 0 2px var(--raiff-deep), 0 10px 24px rgba(255,214,0,0.25);
+    }
+    .instrument .in-top {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 6px;
+    }
+    .instrument .in-name { font-weight: 600; font-size: 15px; }
+    .instrument .in-return { font-size: 18px; font-weight: 800; color: var(--good); }
+    .instrument .in-return small { font-size: 10px; font-weight: 600; color: var(--muted); }
+    .instrument .in-detail { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+    .risk-badge {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 3px 10px; border-radius: 20px;
+      text-transform: uppercase; letter-spacing: 0.04em;
+    }
+    .risk-badge.low    { background: #E7F2E7; color: var(--good); }
+    .risk-badge.medium { background: #FBF0D2; color: var(--warn); }
+    .risk-badge.high   { background: #F8E2DA; color: var(--bad); }
+
+    .holding-row {
+      padding: 14px 0; border-bottom: 1px solid var(--rule);
+      display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center;
+    }
+    .holding-row:last-child { border-bottom: 0; }
+    .holding-row .hr-name { font-size: 13px; font-weight: 600; }
+    .holding-row .hr-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .holding-row .hr-value { font-size: 14px; font-weight: 700; text-align: right; }
+    .holding-row .hr-gain { font-size: 11px; text-align: right; margin-top: 2px; }
+    .holding-row .hr-gain.up { color: var(--good); }
+    .holding-row .hr-gain.down { color: var(--bad); }
   </style>
 </head>
 <body>
@@ -434,6 +569,7 @@
       <button class="tab" data-tab="card" data-i18n="card_tab">Карта</button>
       <button class="tab" data-tab="creditcard" data-i18n="cc_tab">Кредитная</button>
       <button class="tab" data-tab="savings" data-i18n="savings_tab">Вклады</button>
+      <button class="tab" data-tab="invest" data-i18n="invest_tab">Инвестиции</button>
       <button class="tab" data-tab="loans" data-i18n="loans_tab">Кредиты</button>
     </div>
 
@@ -474,6 +610,13 @@
     <div class="tab-pane" data-pane="savings">
       <div id="savings-container">
         <div class="products-loading" data-i18n="loading_savings">Загрузка вкладов...</div>
+      </div>
+    </div>
+
+    <!-- ===== Investments pane ===== -->
+    <div class="tab-pane" data-pane="invest">
+      <div id="invest-container">
+        <div class="products-loading" data-i18n="loading_invest">Загрузка инвестиций...</div>
       </div>
     </div>
 
@@ -575,6 +718,28 @@
         your_deposits:    "Ваши вклады",
         no_deposits:      "У вас пока нет вкладов",
         months:           "мес.",
+        matures_at:       "Дата погашения",
+        flexible:         "Снятие в любое время",
+        deposit_maturity: "Погашение",
+        invest_tab:       "Инвестиции",
+        loading_invest:   "Загрузка инвестиций...",
+        invest_error:     "Не удалось загрузить инвестиции",
+        portfolio_value:  "Стоимость портфеля",
+        your_portfolio:   "Ваш портфель",
+        no_holdings:      "У вас пока нет инвестиций",
+        available_instruments: "Доступные инструменты",
+        no_instruments:   "Инструменты пока недоступны",
+        exp_return:       "Ожид. доходность",
+        risk_low:         "низкий риск",
+        risk_medium:      "средний риск",
+        risk_high:        "высокий риск",
+        invest_now:       "Инвестировать",
+        invest_amount:    "Сумма инвестиции, ₽",
+        invest_btn:       "Купить",
+        invest_fill:      "Укажите сумму инвестиции",
+        invest_success:   "Заявка принята!",
+        projected_1y:     "Прогноз через год",
+        invested:         "Вложено",
         loading_cc:       "Загрузка кредитной карты...",
         cc_error:         "Не удалось загрузить данные кредитной карты",
         credit_card:      "КРЕДИТНАЯ",
@@ -592,6 +757,8 @@
         cc_not_eligible:  "Кредитная карта пока недоступна для данного клиента.",
         cc_fill_amount:   "Укажите сумму платежа",
         cc_used_of:       "использовано из",
+        cc_secured:       "ЗАЩИЩЁННАЯ",
+        cc_secured_note:  "Предложена защищённая кредитная карта",
       },
       en: {
         balance_label:    "account balance",
@@ -665,6 +832,28 @@
         your_deposits:    "Your deposits",
         no_deposits:      "You have no deposits yet",
         months:           "mo.",
+        matures_at:       "Maturity date",
+        flexible:         "Withdraw anytime",
+        deposit_maturity: "Maturity",
+        invest_tab:       "Invest",
+        loading_invest:   "Loading investments...",
+        invest_error:     "Could not load investments",
+        portfolio_value:  "Portfolio value",
+        your_portfolio:   "Your portfolio",
+        no_holdings:      "You have no investments yet",
+        available_instruments: "Available instruments",
+        no_instruments:   "No instruments available yet",
+        exp_return:       "Exp. return",
+        risk_low:         "low risk",
+        risk_medium:      "medium risk",
+        risk_high:        "high risk",
+        invest_now:       "Invest",
+        invest_amount:    "Investment amount, ₽",
+        invest_btn:       "Buy",
+        invest_fill:      "Please enter an investment amount",
+        invest_success:   "Order accepted!",
+        projected_1y:     "1-year projection",
+        invested:         "Invested",
         loading_cc:       "Loading credit card...",
         cc_error:         "Could not load credit card data",
         credit_card:      "CREDIT",
@@ -682,6 +871,8 @@
         cc_not_eligible:  "Credit card is not available for this customer at the moment.",
         cc_fill_amount:   "Please enter a payment amount",
         cc_used_of:       "used of",
+        cc_secured:       "SECURED",
+        cc_secured_note:  "You have been offered a secured credit card",
       }
     };
 
@@ -704,6 +895,7 @@
         loadCardInfo(opt.value);
         loadCreditCard(opt.value);
         loadSavings(opt.value);
+        loadInvest(opt.value);
       }
       if (productsData.length) renderProducts();
     }
@@ -726,6 +918,7 @@
     const cardContainer = document.getElementById("card-container");
     const ccContainer = document.getElementById("cc-container");
     const savingsContainer = document.getElementById("savings-container");
+    const investContainer = document.getElementById("invest-container");
 
     // ---- tabs ----
     document.querySelectorAll(".tab").forEach(btn => {
@@ -738,6 +931,7 @@
         if (opt && btn.dataset.tab === "card") loadCardInfo(opt.value);
         if (opt && btn.dataset.tab === "creditcard") loadCreditCard(opt.value);
         if (opt && btn.dataset.tab === "savings") loadSavings(opt.value);
+        if (opt && btn.dataset.tab === "invest") loadInvest(opt.value);
       });
     });
 
@@ -765,6 +959,7 @@
       loadCardInfo(opt.value);
       loadCreditCard(opt.value);
       loadSavings(opt.value);
+      loadInvest(opt.value);
       loanResult.innerHTML = "";
     }
     sel.addEventListener("change", onPickClient);
@@ -949,6 +1144,16 @@
         return;
       }
 
+      const isSecured = d.is_secured || d.product_id === "card-credit-secured";
+      const cardLabel = isSecured ? t("cc_secured") : t("credit_card");
+      const cardColor = isSecured
+        ? "background: linear-gradient(135deg, #3a2a1a 0%, #6a4a2a 50%, #3a2a1a 100%)"
+        : "";
+
+      const securedNote = isSecured && d.explanation
+        ? `<div class="alert info" style="margin-bottom:14px">${t("cc_secured_note")}: ${d.explanation}</div>`
+        : "";
+
       const usedPct = d.credit_limit_rub > 0
         ? Math.round((d.balance_owed_rub / d.credit_limit_rub) * 100) : 0;
       const barClass = usedPct < 30 ? "low" : usedPct > 70 ? "high" : "";
@@ -966,12 +1171,13 @@
       ` : "";
 
       ccContainer.innerHTML = `
-        <div class="credit-card-visual">
+        ${securedNote}
+        <div class="credit-card-visual" ${cardColor ? `style="${cardColor}"` : ""}>
           <div class="card-bank">Raiffeisen</div>
           <div class="card-number">${d.card_number_masked}</div>
           <div class="card-bottom">
             <div class="card-holder">${d.customer_name}</div>
-            <div class="card-type">${t("credit_card")}</div>
+            <div class="card-type">${cardLabel}</div>
           </div>
         </div>
 
@@ -1112,7 +1318,7 @@
         productsHtml = `<div class="empty" style="padding:20px 0">${t("no_deposit_products")}</div>`;
       }
 
-      // Open deposit form
+      // Open deposit form (no term selector — term comes from the product)
       const formHtml = products.length ? `
         <div id="deposit-open-section" style="display:${selectedDepositId ? 'block' : 'none'}; margin-top:18px">
           <div class="section-title">${t("open_deposit")}</div>
@@ -1120,15 +1326,6 @@
             <div class="form-row">
               <label>${t("deposit_amount")}</label>
               <input name="dep_amount" type="number" min="1000" step="1000" placeholder="100 000" />
-            </div>
-            <div class="form-row">
-              <label>${t("deposit_term")}</label>
-              <select name="dep_term">
-                <option value="3">3 ${t("months")}</option>
-                <option value="6">6 ${t("months")}</option>
-                <option value="12" selected>12 ${t("months")}</option>
-                <option value="24">24 ${t("months")}</option>
-              </select>
             </div>
             <button class="btn primary" type="submit">${t("deposit_open_btn")}</button>
           </form>
@@ -1158,7 +1355,6 @@
           depResult.innerHTML = "";
           const fd = new FormData(ev.target);
           const amount = +fd.get("dep_amount");
-          const term = +fd.get("dep_term");
           if (!amount || amount <= 0) {
             depResult.innerHTML = `<div class="alert error">${t("deposit_fill")}</div>`;
             return;
@@ -1171,7 +1367,6 @@
                 client_id: d.client_id,
                 product_id: selectedDepositId,
                 amount_rub: amount,
-                term_months: term,
               }),
             });
             const res = await r.json();
@@ -1179,9 +1374,16 @@
               const estIncome = res.estimated_interest_rub
                 ? `${t("estimated_income")}: +${fmt.format(res.estimated_interest_rub)} ₽`
                 : "";
+              const maturity = res.matures_at
+                ? `<br/>${t("deposit_maturity")}: ${res.matures_at}`
+                : (res.early_withdrawal ? `<br/>${t("flexible")}` : "");
+              const termInfo = res.term_months
+                ? ` · ${res.term_months} ${t("months")}`
+                : "";
+              const prodName = res.product_name ? `${res.product_name} — ` : "";
               depResult.innerHTML = `<div class="alert ok">
-                ${t("deposit_success")} ${fmt.format(amount)} ₽ · ${res.rate_pct}% · ${term} ${t("months")}<br/>
-                ${estIncome}
+                ${t("deposit_success")} ${prodName}${fmt.format(res.amount_rub || amount)} ₽ · ${res.rate_pct}%${termInfo}<br/>
+                ${estIncome}${maturity}
               </div>`;
               depForm.reset();
               setTimeout(() => loadSavings(d.client_id), 500);
@@ -1190,6 +1392,154 @@
             }
           } catch(e) {
             depResult.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
+          }
+        });
+      }
+    }
+
+    // ---- Investments ----
+    let investData = null;
+    let selectedInstrumentId = null;
+
+    function riskLabel(risk) {
+      return { low: t("risk_low"), medium: t("risk_medium"), high: t("risk_high") }[risk] || risk || "";
+    }
+
+    async function loadInvest(clientId) {
+      try {
+        const r = await fetch(`/api/investments/${clientId}`);
+        if (!r.ok) throw new Error("failed");
+        investData = await r.json();
+        renderInvest(investData);
+      } catch(e) {
+        investContainer.innerHTML = `<div class="empty">${t("invest_error")}</div>`;
+      }
+    }
+
+    function renderInvest(d) {
+      const instruments = d.instruments || [];
+      const holdings = d.holdings || [];
+
+      const gain = d.gain_rub || 0;
+      const gainDir = gain > 0 ? "up" : gain < 0 ? "down" : "flat";
+      const gainSign = gain > 0 ? "+" : "";
+      const heroHtml = `
+        <div class="invest-hero">
+          <div class="ih-label">${t("portfolio_value")}</div>
+          <div class="ih-value">${fmt.format(d.total_value_rub)} ₽</div>
+          <div class="ih-gain ${gainDir}">
+            ${gainSign}${fmt.format(gain)} ₽ (${gainSign}${d.gain_pct}%)
+          </div>
+        </div>`;
+
+      // Existing holdings
+      let holdingsHtml = "";
+      if (holdings.length) {
+        holdingsHtml = `<div class="section-title">${t("your_portfolio")}</div>` +
+          holdings.map(h => {
+            const hGain = (h.current_value_rub || 0) - (h.invested_rub || 0);
+            const dir = hGain >= 0 ? "up" : "down";
+            const sign = hGain >= 0 ? "+" : "";
+            return `<div class="holding-row">
+              <div>
+                <div class="hr-name">${h.instrument_name || h.instrument_id}</div>
+                <div class="hr-sub">${t("invested")}: ${fmt.format(h.invested_rub || 0)} ₽</div>
+              </div>
+              <div>
+                <div class="hr-value">${fmt.format(h.current_value_rub || 0)} ₽</div>
+                <div class="hr-gain ${dir}">${sign}${fmt.format(hGain)} ₽</div>
+              </div>
+            </div>`;
+          }).join("");
+      }
+
+      // Available instruments
+      let instrumentsHtml = "";
+      if (instruments.length) {
+        instrumentsHtml = `<div class="section-title" style="margin-top:18px">${t("available_instruments")}</div>` +
+          instruments.map(ins => {
+            const sel = ins.id === selectedInstrumentId ? "selected" : "";
+            const risk = ins.risk || "medium";
+            const ret = ins.expected_return_pct != null ? ins.expected_return_pct : (ins.rate_pct || "");
+            return `<div class="instrument ${sel}" data-instrument-id="${ins.id}">
+              <div class="in-top">
+                <span class="in-name">${ins.name}</span>
+                <span class="in-return">${ret}% <small>${t("exp_return")}</small></span>
+              </div>
+              <div class="in-detail">${ins.description || ""}</div>
+              <span class="risk-badge ${risk}">${riskLabel(risk)}</span>
+            </div>`;
+          }).join("");
+      } else {
+        instrumentsHtml = `<div class="empty">${t("no_instruments")}</div>`;
+      }
+
+      // Invest form
+      const formHtml = instruments.length ? `
+        <div id="invest-open-section" style="display:${selectedInstrumentId ? 'block' : 'none'}; margin-top:18px">
+          <div class="section-title">${t("invest_now")}</div>
+          <form id="invest-form" autocomplete="off">
+            <div class="form-row">
+              <label>${t("invest_amount")}</label>
+              <input name="inv_amount" type="number" min="1000" step="1000" placeholder="50 000" />
+            </div>
+            <button class="btn primary" type="submit">${t("invest_btn")}</button>
+          </form>
+          <div id="invest-result"></div>
+        </div>
+      ` : "";
+
+      investContainer.innerHTML = heroHtml + holdingsHtml + instrumentsHtml + formHtml;
+
+      // Instrument selection
+      investContainer.querySelectorAll(".instrument").forEach(card => {
+        card.addEventListener("click", () => {
+          selectedInstrumentId = card.dataset.instrumentId;
+          investContainer.querySelectorAll(".instrument").forEach(c => c.classList.remove("selected"));
+          card.classList.add("selected");
+          const section = document.getElementById("invest-open-section");
+          if (section) section.style.display = "block";
+        });
+      });
+
+      // Invest form handler
+      const invForm = document.getElementById("invest-form");
+      if (invForm) {
+        invForm.addEventListener("submit", async (ev) => {
+          ev.preventDefault();
+          const invResult = document.getElementById("invest-result");
+          invResult.innerHTML = "";
+          const amount = +new FormData(ev.target).get("inv_amount");
+          if (!amount || amount <= 0) {
+            invResult.innerHTML = `<div class="alert error">${t("invest_fill")}</div>`;
+            return;
+          }
+          if (!selectedInstrumentId) return;
+          try {
+            const r = await fetch("/api/invest", {
+              method: "POST", headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({
+                client_id: d.client_id,
+                instrument_id: selectedInstrumentId,
+                amount_rub: amount,
+              }),
+            });
+            const res = await r.json();
+            if (r.ok) {
+              const proj = res.projected_value_1y_rub
+                ? `<br/>${t("projected_1y")}: ${fmt.format(res.projected_value_1y_rub)} ₽`
+                : "";
+              const nm = res.instrument_name ? `${res.instrument_name} — ` : "";
+              invResult.innerHTML = `<div class="alert ok">
+                ${t("invest_success")} ${nm}${fmt.format(res.amount_rub || amount)} ₽${proj}
+              </div>`;
+              invForm.reset();
+              setTimeout(() => loadInvest(d.client_id), 500);
+            } else {
+              invResult.innerHTML = `<div class="alert error">${res.detail || t("error")}</div>`;
+            }
+          } catch(e) {
+            invResult.innerHTML = `<div class="alert error">${t("server_down")}</div>`;
           }
         });
       }
