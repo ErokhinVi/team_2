@@ -570,6 +570,47 @@ def _portfolio_view(client_id: str) -> dict:
     }
 
 
+@app.get("/investments/summary")
+async def investments_summary() -> dict:
+    """Сводка по всему банку: активы под управлением (AUM) по всем клиентам,
+    суммарная стоимость, вложено, прибыль/убыток, число инвесторов и разбивка
+    по инструментам."""
+    total_value = 0
+    total_cost = 0
+    investors = 0
+    by_instrument: dict[str, dict[str, Any]] = {}
+    for client_id, holdings in _holdings_by_client.items():
+        if not holdings:
+            continue
+        investors += 1
+        for h in holdings.values():
+            instr = _instruments.get(h["symbol"], {})
+            price = int(instr.get("price_rub", 0))
+            qty = int(h["qty"])
+            value = price * qty
+            cost = int(h["avg_cost_rub"]) * qty
+            total_value += value
+            total_cost += cost
+            row = by_instrument.setdefault(h["symbol"], {
+                "symbol": h["symbol"],
+                "name": instr.get("name", h["symbol"]),
+                "qty": 0, "market_value_rub": 0, "holders": 0,
+            })
+            row["qty"] += qty
+            row["market_value_rub"] += value
+            row["holders"] += 1
+    breakdown = sorted(by_instrument.values(),
+                       key=lambda r: r["market_value_rub"], reverse=True)
+    return {
+        "assets_under_management_rub": total_value,
+        "invested_rub": total_cost,
+        "unrealized_pnl_rub": total_value - total_cost,
+        "investors": investors,
+        "orders_total": len(_orders),
+        "by_instrument": breakdown,
+    }
+
+
 @app.get("/clients/{client_id}/portfolio")
 async def get_portfolio(client_id: str) -> dict:
     """Инвестиционный портфель клиента: позиции, текущая стоимость, прибыль/убыток."""
