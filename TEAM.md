@@ -10,13 +10,15 @@ blocks (`retail`, `cib`, `backend`), one participant per block. Every
 other team has its own separate repository and isn't visible from here.
 
 There is no fixed roster of "who is in which block" here, on purpose.
-Each participant picks the block themselves and types their name when
-setting their laptop up — in `tools/bootstrap/raif-workshop-setup.applescript`
-(macOS) or `raif-workshop-setup.cmd` (Windows). The choice is written into
+Each participant picks the team, the block and types their name when
+setting their laptop up — in `raif-workshop-setup.applescript` (macOS) or
+`raif-workshop-setup.cmd` (Windows), one installer for every team. The
+installer clones only the picked team's repo, so the team identity is
+the repo the agent works in. The block choice is written into
 `.git/raif-workshop-info` (`WORKSHOP_BLOCK`, `WORKSHOP_PARTICIPANT`),
-where `tools/cowork-onboard.py` reads it when the agent starts. The team
-identity is determined by which repo the participant cloned — not by a
-picker.
+where `tools/cowork-onboard.py` reads it when the agent starts. A
+participant may switch blocks between stages: save the work, run the
+installer again and pick the new block.
 
 ## What each block does
 
@@ -55,17 +57,20 @@ want technical mode: defer to the scenario in `CLAUDE.md` but skip the
 
 ## Services and URLs
 
-The exact Render URLs of this team's three services and the shared
-leaderboard URL are filled in during workshop setup — see the section
-below. If the placeholders are still in place, ask the organiser for the
-final URLs and update this file.
+The exact URLs of this team's three services and the shared leaderboard
+are filled in during workshop setup. If the placeholders are still in
+place, ask the organiser for the final URLs and update this file.
 
-| Block | Local | On Render |
-|---|---|---|
-| retail | `http://localhost:8001` | `https://raif-offsite-b-retail.onrender.com` |
-| cib | `http://localhost:8002` | `https://raif-offsite-b-cib.onrender.com` |
-| backend | `http://localhost:8003` | `https://raif-offsite-b-backend.onrender.com` |
-| Leaderboard (organiser's simulator) | — | `https://raif-offsite-simulator.onrender.com` |
+The corporate network blocks `*.onrender.com`. The `workers.dev` column is
+a proxy to the same services and opens from anywhere: when a Render link
+doesn't open for the participant, give them the `workers.dev` one.
+
+| Block | Local | On Render | Via proxy (workers.dev) |
+|---|---|---|---|
+| retail | `http://localhost:8001` | `https://raif-offsite-b-retail.onrender.com` | `https://team2-retail.erokhinva.workers.dev` |
+| cib | `http://localhost:8002` | `https://raif-offsite-b-cib.onrender.com` | `https://team2-cib.erokhinva.workers.dev` |
+| backend | `http://localhost:8003` | `https://raif-offsite-b-backend.onrender.com` | `https://team2-backend.erokhinva.workers.dev` |
+| Leaderboard (organiser's simulator) | — | `https://raif-offsite-simulator.onrender.com` | `https://simulator.erokhinva.workers.dev` |
 
 Show the participant their team's retail block — that's the bank the
 customer sees. The leaderboard shows every team's score head to head.
