@@ -163,6 +163,30 @@
     .client-picker select { width: 100%; margin-top: 4px; padding: 8px 10px;
       border: 1px solid var(--rule); background: var(--surface); border-radius: 6px;
       font-family: inherit; font-size: 13px; }
+
+    .credit-hero {
+      padding: 18px; border-radius: 12px;
+      background: linear-gradient(135deg, #fff7a0 0%, #ffe600 100%);
+      margin-bottom: 18px;
+    }
+    .credit-hero .eyebrow {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em;
+      color: var(--text-2); font-weight: 600;
+    }
+    .credit-hero h2 { margin: 10px 0 4px; font-size: 23px; letter-spacing: -0.03em; }
+    .credit-hero p { margin: 0; color: var(--text-2); line-height: 1.45; }
+    .credit-perks { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 22px; }
+    .credit-perk { padding: 10px 8px; background: var(--bg); border-radius: 8px; text-align: center; }
+    .credit-perk strong { display: block; font-size: 14px; }
+    .credit-perk span { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; line-height: 1.25; }
+    .credit-card { padding: 16px; border: 1px solid var(--rule); border-radius: 10px; }
+    .credit-card h3 { margin: 0 0 16px; font-size: 16px; }
+    .credit-summary { margin: 4px 0 16px; padding: 14px; border-radius: 8px; background: var(--bg); }
+    .credit-summary span, .credit-summary small { display: block; color: var(--text-2); }
+    .credit-summary span { font-size: 12px; }
+    .credit-summary strong { display: block; margin: 4px 0; font-size: 25px; letter-spacing: -0.02em; }
+    .credit-summary small { font-size: 11px; }
+    .credit-note { margin-top: 16px; color: var(--muted); font-size: 11px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -184,6 +208,7 @@
 
     <div class="tabs">
       <button class="tab active" data-tab="transfers">Переводы</button>
+      <button class="tab" data-tab="credit">Кредиты</button>
     </div>
 
     <div class="tab-pane show" data-pane="transfers">
@@ -204,6 +229,48 @@
       <div class="section-title" style="margin-top:24px">Последние операции</div>
       <div id="tx-list" class="tx-list"></div>
     </div>
+
+    <div class="tab-pane" data-pane="credit">
+      <div class="credit-hero">
+        <div class="eyebrow">Персональное предложение</div>
+        <h2>Кредит на любые цели</h2>
+        <p>Получите деньги на важные покупки с понятным ежемесячным платежом.</p>
+      </div>
+
+      <div class="credit-perks">
+        <div class="credit-perk"><strong>от 14,9%</strong><span>персональная ставка</span></div>
+        <div class="credit-perk"><strong>0 ₽</strong><span>комиссия</span></div>
+        <div class="credit-perk"><strong>5 минут</strong><span>решение</span></div>
+      </div>
+
+      <div class="credit-card">
+        <h3>Рассчитайте условия</h3>
+        <form id="credit-form" autocomplete="off">
+          <div class="form-row">
+            <label for="credit-amount">Сумма кредита, ₽</label>
+            <input id="credit-amount" name="amount" type="number" min="50000" max="1500000" step="1000" value="300000" />
+          </div>
+          <div class="form-row">
+            <label for="credit-term">Срок</label>
+            <select id="credit-term" name="term">
+              <option value="12">12 месяцев</option>
+              <option value="24" selected>24 месяца</option>
+              <option value="36">36 месяцев</option>
+              <option value="48">48 месяцев</option>
+              <option value="60">60 месяцев</option>
+            </select>
+          </div>
+          <div class="credit-summary">
+            <span>Ориентировочный платёж</span>
+            <strong id="credit-payment">— ₽ в месяц</strong>
+            <small>Итоговая ставка зависит от вашей ситуации</small>
+          </div>
+          <button class="btn primary" type="submit">Получить решение</button>
+        </form>
+        <div id="credit-result"></div>
+        <div class="credit-note">Без комиссии за оформление и досрочное погашение. Постоянным клиентам — скидка 3 п.п. Платёж не должен превышать примерно треть подтверждённого дохода.</div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -215,6 +282,10 @@
     const topbarWho = document.getElementById("topbar-who");
     const txList = document.getElementById("tx-list");
     const transferResult = document.getElementById("transfer-result");
+    const creditAmount = document.getElementById("credit-amount");
+    const creditTerm = document.getElementById("credit-term");
+    const creditPayment = document.getElementById("credit-payment");
+    const creditResult = document.getElementById("credit-result");
 
     // ---- табы ----
     document.querySelectorAll(".tab").forEach(btn => {
@@ -249,6 +320,19 @@
       loadTx(opt.value);
     }
     sel.addEventListener("change", onPickClient);
+
+    // ---- кредитный калькулятор ----
+    function updateCreditEstimate() {
+      const amount = Math.max(0, +creditAmount.value || 0);
+      const months = Math.max(1, +creditTerm.value || 1);
+          const monthlyRate = 0.149 / 12;
+      const factor = Math.pow(1 + monthlyRate, months);
+      const payment = amount * monthlyRate * factor / (factor - 1);
+      creditPayment.textContent = `${fmt.format(Math.round(payment))} ₽ в месяц`;
+    }
+    creditAmount.addEventListener("input", updateCreditEstimate);
+    creditTerm.addEventListener("change", updateCreditEstimate);
+    updateCreditEstimate();
 
     // ---- последние операции ----
     async function loadTx(clientId) {
@@ -338,6 +422,41 @@
       } catch(e) {
         transferResult.innerHTML =
           `<div class="alert error">сервер не ответил</div>`;
+      }
+    });
+
+    // ---- заявка на кредит ----
+    document.getElementById("credit-form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      creditResult.innerHTML = "";
+      const opt = sel.selectedOptions[0];
+      const amount = +creditAmount.value;
+      const term = +creditTerm.value;
+      if (!opt || amount < 50000 || amount > 1500000 || term < 6 || term > 60) {
+        creditResult.innerHTML = `<div class="alert error">проверьте сумму и срок кредита</div>`;
+        return;
+      }
+      try {
+        const r = await fetch("/api/credit-apply", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({client_id: opt.value, product_id: "credit-consumer", amount_rub: amount, term_months: term}),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+          const approved = d.approved === true || ["approved", "approve"].includes(String(d.decision || "").toLowerCase());
+          const tone = approved ? "ok" : "info";
+          const title = approved ? "Кредит предварительно одобрен" : "Заявка рассмотрена";
+          creditResult.innerHTML = `<div class="alert ${tone}">${title}. ${d.reason || "Условия появятся после проверки"}</div>`;
+        } else if (r.status === 409 && d.reason_code === "client_data_incomplete") {
+          creditResult.innerHTML = `<div class="alert info">Нужно уточнить данные клиента. Это не отказ в кредите — повторите запрос после обновления сведений.</div>`;
+        } else if (r.status === 404) {
+          creditResult.innerHTML = `<div class="alert info">Заявка будет доступна сразу после подключения кредитного решения банка.</div>`;
+        } else {
+          creditResult.innerHTML = `<div class="alert error">${d.detail || "не удалось отправить заявку"}</div>`;
+        }
+      } catch(e) {
+        creditResult.innerHTML = `<div class="alert error">сервис временно недоступен</div>`;
       }
     });
 
