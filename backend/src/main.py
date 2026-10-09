@@ -45,6 +45,14 @@ CREDIT_MIN_TERM_MONTHS = 6
 CREDIT_MAX_TERM_MONTHS = 60
 CREDIT_MIN_RATE_PCT = 14.9
 CREDIT_MAX_RATE_PCT = 24.9
+CREDIT_LOW_RISK_MAX_SCORE = 0.20
+
+# Учебные значения для совместной проверки CIB. Остальные клиенты не имеют
+# подтверждённого источника текущей просрочки и получают None.
+_DEMO_CURRENT_OVERDUE_BY_CLIENT = {
+    "c-01000": False,
+    "c-01004": True,
+}
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -77,8 +85,12 @@ def _client_view(client: dict[str, Any]) -> dict[str, Any]:
     """Expose stable credit-profile fields without inventing missing data."""
     view = dict(client)
     view["monthly_income_rub"] = client.get("income_rub")
-    view["risk_level"] = None
-    view["has_serious_current_overdue"] = None
+    risk_score = client.get("risk_score")
+    if isinstance(risk_score, (int, float)):
+        view["risk_level"] = "low" if risk_score <= CREDIT_LOW_RISK_MAX_SCORE else "standard"
+    else:
+        view["risk_level"] = None
+    view["has_serious_current_overdue"] = _DEMO_CURRENT_OVERDUE_BY_CLIENT.get(client["id"])
     view["is_payroll_client"] = None
     joined_at = client.get("joined_at")
     if not joined_at:

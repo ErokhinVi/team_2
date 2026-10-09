@@ -156,10 +156,18 @@ class CreditApplicationTests(unittest.TestCase):
         client = asyncio.run(backend.get_client("c-01000"))
 
         self.assertEqual(client["monthly_income_rub"], client["income_rub"])
-        self.assertIsNone(client["risk_level"])
-        self.assertIsNone(client["has_serious_current_overdue"])
+        self.assertEqual(client["risk_level"], "standard")
+        self.assertFalse(client["has_serious_current_overdue"])
         self.assertIsNone(client["is_payroll_client"])
         self.assertTrue(client["is_loyal_client"])
+
+        higher_risk_client = asyncio.run(backend.get_client("c-01004"))
+        self.assertEqual(higher_risk_client["risk_level"], "standard")
+        self.assertTrue(higher_risk_client["has_serious_current_overdue"])
+
+        low_risk_client = asyncio.run(backend.get_client("c-01013"))
+        self.assertEqual(low_risk_client["risk_level"], "low")
+        self.assertIsNone(low_risk_client["has_serious_current_overdue"])
 
     def test_repeating_same_decision_is_idempotent(self):
         application = asyncio.run(backend.create_credit_application({
