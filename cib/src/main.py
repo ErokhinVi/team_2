@@ -1,8 +1,8 @@
 """Блок cib — корпоратив и бизнес-логика банка команды.
 
 Каталог продуктов и (в рамках задачи) логика кредитного решения.
-За данными клиента ходит в backend по BACKEND_URL. Логику решения
-(POST /credit/decide) и кредитный продукт добавляет владелец блока.
+За данными клиента и заявки ходит в backend по BACKEND_URL.
+POST /credit/decide принимает решение и сохраняет его в backend.
 Хелпер src/llm.py — для человеческого объяснения решения.
 """
 from __future__ import annotations
@@ -11,18 +11,31 @@ import os
 
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
+from src.credit_api import router as credit_router
 
 TEAM_NAME = os.environ.get("TEAM_NAME", "team")
 COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local")
 BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8003").rstrip("/")
 
-# Базовый каталог. Кредитный продукт добавляет владелец блока в рамках задачи.
+# Product terms supplied by retail and clarified by the CIB participant.
 PRODUCTS = [
     {"id": "card-debit", "kind": "card", "name": "Дебетовая карта", "segment": "mass"},
     {"id": "deposit-base", "kind": "deposit", "name": "Срочный депозит", "rate_pct": 14.0},
+    {
+        "id": "credit-consumer", "kind": "credit", "name": "Потребительский кредит",
+        "segment": "mass", "min_amount_rub": 50_000, "max_amount_rub": 1_500_000,
+        "min_term_months": 6, "max_term_months": 60,
+        "min_base_rate_pct": 17.9, "max_base_rate_pct": 24.9,
+        "min_personal_rate_pct": 14.9, "max_personal_rate_pct": 24.9,
+        "payroll_discount_pp": 2, "loyal_discount_pp": 3,
+        "origination_fee_rub": 0, "early_repayment_fee_rub": 0,
+        "application_available": False,
+        "availability_reason": "Ожидаем подтверждённые признаки клиента от backend",
+    },
 ]
 
 app = FastAPI(title="cib — корпоратив и бизнес-логика", version="1.0.0")
+app.include_router(credit_router)
 
 
 @app.get("/health")
