@@ -176,7 +176,7 @@ def _parse_expiry(value: str) -> datetime:
 def _request_crypto_quote(amount_rub: int) -> dict[str, Any]:
     request = urllib.request.Request(
         f"{CIB_URL}/crypto/quote",
-        data=json.dumps({"amount_rub": amount_rub}).encode("utf-8"),
+        data=json.dumps({"asset": "USDT", "amount_rub": f"{amount_rub:.2f}"}).encode("utf-8"),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
@@ -210,19 +210,28 @@ async def create_crypto_topup(payload: dict) -> dict:
         )
     quote = _request_crypto_quote(amount_rub)
     try:
-        quote_amount = int(quote["amount_rub"])
-        amount_usdt = float(quote["amount_usdt"])
-        rate = float(quote["rate_rub_per_usdt"])
-        fee_rub = int(quote["fee_rub"])
+        quote_amount = float(quote["amount_rub"])
+        credit_amount = float(quote["credit_amount_rub"])
+        crypto_amount = str(quote["crypto_amount"])
+        rate = str(quote["rate_rub_per_unit"])
+        rate_value = float(rate)
+        fee_rub = str(quote["fee_rub"])
+        asset = quote["asset"]
+        status = quote["status"]
+        demo_only = quote["demo_only"]
         expires_at = quote["expires_at"]
         expiry = _parse_expiry(expires_at)
     except (KeyError, TypeError, ValueError):
         raise HTTPException(status_code=502, detail="CIB вернул неполную котировку")
     if (
-        quote_amount != amount_rub
-        or amount_usdt <= 0
-        or rate <= 0
-        or fee_rub != 0
+        asset != "USDT"
+        or status != "preview"
+        or demo_only is not True
+        or quote_amount != amount_rub
+        or credit_amount != amount_rub
+        or not crypto_amount
+        or rate_value <= 0
+        or fee_rub not in {"0", "0.0", "0.00"}
         or expiry <= _utcnow()
     ):
         raise HTTPException(status_code=502, detail="CIB вернул недействительную котировку")
@@ -232,12 +241,13 @@ async def create_crypto_topup(payload: dict) -> dict:
         "id": topup_id,
         "client_id": client_id,
         "amount_rub": amount_rub,
-        "amount_usdt": amount_usdt,
-        "rate_rub_per_usdt": rate,
+        "credit_amount_rub": f"{credit_amount:.2f}",
+        "crypto_amount": crypto_amount,
+        "rate_rub_per_unit": rate,
         "fee_rub": fee_rub,
         "expires_at": expires_at,
         "status": "pending",
-        "demo": True,
+        "demo_only": True,
         "created_at": now_iso,
         "updated_at": now_iso,
         "transaction_id": None,
@@ -255,7 +265,7 @@ async def get_crypto_topup(topup_id: str) -> dict:
     return _crypto_topup_view(topup)
 
 
-@app.post("/crypto-topups/{topup_id}/confirm")
+@app.post("/crypto-topups/{topup_id}/simulate-confirm")
 async def confirm_crypto_topup(topup_id: str) -> dict:
     topup = _crypto_topups.get(topup_id)
     if not topup:

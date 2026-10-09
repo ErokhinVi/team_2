@@ -45,9 +45,12 @@ transactions_loaded}`.
 Создаёт учебное пополнение USDT. Принимает `{client_id, amount_rub}`; сумма
 должна быть от 1 000 до 100 000 ₽. Backend сам запрашивает котировку CIB
 через `POST /crypto/quote` и не доверяет курсу или суммам из браузера.
-Возвращает `{id, client_id, amount_rub, amount_usdt, rate_rub_per_usdt,
-fee_rub, expires_at, status, demo, created_at, updated_at,
-transaction_id, credited_at}` со `status: pending` и `demo: true`.
+Возвращает `{id, client_id, amount_rub, credit_amount_rub, crypto_amount,
+rate_rub_per_unit, fee_rub, expires_at,
+status, demo_only, created_at, updated_at, transaction_id, credited_at}` со
+`status: pending` и `demo_only: true`. Поля котировки сохраняются в формате
+CIB: `crypto_amount`, `credit_amount_rub`, `rate_rub_per_unit` и `fee_rub` —
+десятичные строки.
 Котировка должна иметь нулевую комиссию и будущий срок действия; недоступность
 CIB возвращается как `503`, недействительная котировка — как `502`.
 
@@ -55,7 +58,7 @@ CIB возвращается как `503`, недействительная ко
 Возвращает сохранённое учебное пополнение по идентификатору. `404`, если оно
 не найдено.
 
-### POST /crypto-topups/{topup_id}/confirm
+### POST /crypto-topups/{topup_id}/simulate-confirm
 Однократно моделирует зачисление рублей на учебный баланс клиента по
 действующей котировке. При успехе возвращает пополнение со `status: credited`,
 `transaction_id` и `new_balance_rub`; операция записывается с типом

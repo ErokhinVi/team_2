@@ -221,11 +221,16 @@ class CreditApplicationTests(unittest.TestCase):
 
     def test_creates_demo_crypto_topup_from_cib_quote(self):
         backend._request_crypto_quote = lambda amount_rub: {
-            "amount_rub": amount_rub,
-            "amount_usdt": amount_rub / 100,
-            "rate_rub_per_usdt": 100,
-            "fee_rub": 0,
+            "asset": "USDT",
+            "amount_rub": f"{amount_rub:.2f}",
+            "credit_amount_rub": f"{amount_rub:.2f}",
+            "crypto_amount": f"{amount_rub / 100:.6f}",
+            "rate_rub_per_unit": "100.00",
+            "fee_rub": "0.00",
             "expires_at": "2099-01-01T00:05:00+00:00",
+            "status": "preview",
+            "can_accept_payment": False,
+            "demo_only": True,
         }
 
         result = asyncio.run(backend.create_crypto_topup({
@@ -234,9 +239,9 @@ class CreditApplicationTests(unittest.TestCase):
         }))
 
         self.assertEqual(result["status"], "pending")
-        self.assertEqual(result["amount_usdt"], 100)
-        self.assertTrue(result["demo"])
-        self.assertEqual(result["fee_rub"], 0)
+        self.assertEqual(result["crypto_amount"], "100.000000")
+        self.assertTrue(result["demo_only"])
+        self.assertEqual(result["fee_rub"], "0.00")
 
     def test_rejects_crypto_topup_amount_outside_limits(self):
         with self.assertRaises(_FakeHTTPException) as context:
@@ -249,11 +254,16 @@ class CreditApplicationTests(unittest.TestCase):
 
     def test_confirms_crypto_topup_once_and_repeat_does_not_double_credit(self):
         backend._request_crypto_quote = lambda amount_rub: {
-            "amount_rub": amount_rub,
-            "amount_usdt": amount_rub / 100,
-            "rate_rub_per_usdt": 100,
-            "fee_rub": 0,
+            "asset": "USDT",
+            "amount_rub": f"{amount_rub:.2f}",
+            "credit_amount_rub": f"{amount_rub:.2f}",
+            "crypto_amount": f"{amount_rub / 100:.6f}",
+            "rate_rub_per_unit": "100.00",
+            "fee_rub": "0.00",
             "expires_at": "2099-01-01T00:05:00+00:00",
+            "status": "preview",
+            "can_accept_payment": False,
+            "demo_only": True,
         }
         topup = asyncio.run(backend.create_crypto_topup({
             "client_id": "c-01000",
@@ -275,11 +285,16 @@ class CreditApplicationTests(unittest.TestCase):
 
     def test_expired_crypto_topup_is_not_credited(self):
         backend._request_crypto_quote = lambda amount_rub: {
-            "amount_rub": amount_rub,
-            "amount_usdt": amount_rub / 100,
-            "rate_rub_per_usdt": 100,
-            "fee_rub": 0,
+            "asset": "USDT",
+            "amount_rub": f"{amount_rub:.2f}",
+            "credit_amount_rub": f"{amount_rub:.2f}",
+            "crypto_amount": f"{amount_rub / 100:.6f}",
+            "rate_rub_per_unit": "100.00",
+            "fee_rub": "0.00",
             "expires_at": "2099-01-01T00:05:00+00:00",
+            "status": "preview",
+            "can_accept_payment": False,
+            "demo_only": True,
         }
         topup = asyncio.run(backend.create_crypto_topup({
             "client_id": "c-01000",
