@@ -230,6 +230,25 @@ async def record_credit_decision(application_id: str, payload: dict) -> dict:
             raise HTTPException(status_code=400, detail="ежемесячный платёж должен быть положительным")
     else:
         approved_fields = {field: None for field in approved_fields}
+    if application["status"] == "decided":
+        existing_decision = {
+            "decision": application["decision"],
+            "reason_code": application["reason_code"],
+            "reason": application["reason"],
+            "approved_amount_rub": application["approved_amount_rub"],
+            "approved_term_months": application["approved_term_months"],
+            "personal_rate_pct": application["personal_rate_pct"],
+            "monthly_payment_rub": application["monthly_payment_rub"],
+        }
+        requested_decision = {
+            "decision": decision,
+            "reason_code": reason_code,
+            "reason": reason,
+            **approved_fields,
+        }
+        if requested_decision == existing_decision:
+            return _credit_application_view(application)
+        raise HTTPException(status_code=409, detail="решение по заявке уже отличается")
     application.update({
         "status": "decided",
         "decision": decision,

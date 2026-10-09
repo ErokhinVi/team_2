@@ -161,6 +161,54 @@ class CreditApplicationTests(unittest.TestCase):
         self.assertIsNone(client["is_payroll_client"])
         self.assertTrue(client["is_loyal_client"])
 
+    def test_repeating_same_decision_is_idempotent(self):
+        application = asyncio.run(backend.create_credit_application({
+            "client_id": "c-01000",
+            "amount_rub": 500_000,
+            "term_months": 36,
+        }))
+        decision = {
+            "decision": "approved",
+            "reason_code": "within_income_limit",
+            "reason": "Платёж укладывается в лимит дохода",
+            "approved_amount_rub": 500_000,
+            "approved_term_months": 36,
+            "personal_rate_pct": 19.9,
+            "monthly_payment_rub": 18_500,
+        }
+
+        first = asyncio.run(backend.record_credit_decision(application["id"], decision))
+        repeated = asyncio.run(backend.record_credit_decision(application["id"], decision))
+
+        self.assertEqual(repeated, first)
+
+    def test_changing_existing_decision_returns_conflict(self):
+        application = asyncio.run(backend.create_credit_application({
+            "client_id": "c-01000",
+            "amount_rub": 500_000,
+            "term_months": 36,
+        }))
+        approved = {
+            "decision": "approved",
+            "reason_code": "within_income_limit",
+            "reason": "Платёж укладывается в лимит дохода",
+            "approved_amount_rub": 500_000,
+            "approved_term_months": 36,
+            "personal_rate_pct": 19.9,
+            "monthly_payment_rub": 18_500,
+        }
+        asyncio.run(backend.record_credit_decision(application["id"], approved))
+
+        with self.assertRaises(_FakeHTTPException) as context:
+            asyncio.run(backend.record_credit_decision(application["id"], {
+                **approved,
+                "decision": "rejected",
+                "reason_code": "client_data_incomplete",
+                "reason": "Нужны дополнительные сведения",
+            }))
+
+        self.assertEqual(context.exception.status_code, 409)
+
 
 if __name__ == "__main__":
     unittest.main()
