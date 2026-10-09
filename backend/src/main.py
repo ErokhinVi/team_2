@@ -43,6 +43,8 @@ CREDIT_MIN_AMOUNT_RUB = 50_000
 CREDIT_MAX_AMOUNT_RUB = 1_500_000
 CREDIT_MIN_TERM_MONTHS = 6
 CREDIT_MAX_TERM_MONTHS = 60
+CREDIT_MIN_RATE_PCT = 14.9
+CREDIT_MAX_RATE_PCT = 24.9
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -198,7 +200,7 @@ async def record_credit_decision(application_id: str, payload: dict) -> dict:
             raise HTTPException(status_code=400, detail="одобренная сумма вне допустимого диапазона")
         if not CREDIT_MIN_TERM_MONTHS <= approved_fields["approved_term_months"] <= CREDIT_MAX_TERM_MONTHS:
             raise HTTPException(status_code=400, detail="одобренный срок вне допустимого диапазона")
-        if not 17.9 <= approved_fields["personal_rate_pct"] <= 24.9:
+        if not CREDIT_MIN_RATE_PCT <= approved_fields["personal_rate_pct"] <= CREDIT_MAX_RATE_PCT:
             raise HTTPException(status_code=400, detail="персональная ставка вне диапазона продукта")
         if approved_fields["monthly_payment_rub"] <= 0:
             raise HTTPException(status_code=400, detail="ежемесячный платёж должен быть положительным")

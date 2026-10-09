@@ -109,6 +109,49 @@ class CreditApplicationTests(unittest.TestCase):
         self.assertEqual(result["id"], application["id"])
         self.assertEqual(result["status"], "pending")
 
+    def test_accepts_rate_boundaries(self):
+        for rate in (14.9, 15.9, 24.9):
+            application = asyncio.run(backend.create_credit_application({
+                "client_id": "c-01000",
+                "amount_rub": 500_000,
+                "term_months": 36,
+            }))
+            result = asyncio.run(backend.record_credit_decision(
+                application["id"],
+                {
+                    "decision": "approved",
+                    "reason_code": "within_income_limit",
+                    "reason": "Ставка в допустимом диапазоне",
+                    "approved_amount_rub": 500_000,
+                    "approved_term_months": 36,
+                    "personal_rate_pct": rate,
+                    "monthly_payment_rub": 18_500,
+                },
+            ))
+            self.assertEqual(result["personal_rate_pct"], rate)
+
+    def test_rejects_rate_outside_range(self):
+        for rate in (14.8, 25.0):
+            application = asyncio.run(backend.create_credit_application({
+                "client_id": "c-01000",
+                "amount_rub": 500_000,
+                "term_months": 36,
+            }))
+            with self.assertRaises(_FakeHTTPException) as context:
+                asyncio.run(backend.record_credit_decision(
+                    application["id"],
+                    {
+                        "decision": "approved",
+                        "reason_code": "within_income_limit",
+                        "reason": "Проверка ставки",
+                        "approved_amount_rub": 500_000,
+                        "approved_term_months": 36,
+                        "personal_rate_pct": rate,
+                        "monthly_payment_rub": 18_500,
+                    },
+                ))
+            self.assertEqual(context.exception.status_code, 400)
+
 
 if __name__ == "__main__":
     unittest.main()
