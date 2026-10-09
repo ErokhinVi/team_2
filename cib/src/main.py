@@ -27,10 +27,10 @@ PRODUCTS = [
         "min_term_months": 6, "max_term_months": 60,
         "min_base_rate_pct": 17.9, "max_base_rate_pct": 24.9,
         "min_personal_rate_pct": 14.9, "max_personal_rate_pct": 24.9,
-        "payroll_discount_pp": 2, "loyal_discount_pp": 3,
+        "payroll_discount_pp": 0, "payroll_discount_enabled": False, "loyal_discount_pp": 3,
         "origination_fee_rub": 0, "early_repayment_fee_rub": 0,
         "application_available": False,
-        "availability_reason": "Ожидаем подтверждённые признаки клиента от backend",
+        "availability_reason": "Ожидаем обозначенных демонстрационных клиентов и совместную проверку",
     },
 ]
 

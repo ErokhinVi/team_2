@@ -20,7 +20,7 @@ class PolicyTests(unittest.TestCase):
     def test_rates_and_nonstacking_discounts(self):
         for risk, payroll, loyal, expected in [
             ("low", False, False, 17.9), ("standard", False, False, 24.9),
-            ("low", True, False, 15.9), ("low", False, True, 14.9),
+            ("low", True, False, 17.9), ("low", False, True, 14.9),
             ("low", True, True, 14.9), ("standard", True, True, 21.9)]:
             result = decide(customer(risk_level=risk, is_payroll_client=payroll,
                                      is_loyal_client=loyal), Decimal(100000), 12)
@@ -44,7 +44,7 @@ class PolicyTests(unittest.TestCase):
 
     def test_missing_and_unverified_data_do_not_approve(self):
         for field in ["income_rub", "risk_level",
-                      "has_serious_current_overdue", "is_payroll_client", "is_loyal_client"]:
+                      "has_serious_current_overdue", "is_loyal_client"]:
             c = customer(); del c[field]
             with self.assertRaises(MissingClientData):
                 decide(c, Decimal(50000), 6)
@@ -55,6 +55,16 @@ class PolicyTests(unittest.TestCase):
         c = customer()
         del c["income_verified"]
         self.assertEqual(decide(c, Decimal(50000), 6)["decision"], "approved")
+
+    def test_risk_threshold_and_disabled_payroll(self):
+        for score, expected in [(0.041, 17.9), (0.20, 17.9), (0.200001, 24.9), (0.669, 24.9)]:
+            result = decide(customer(risk_level=None, risk_score=score, is_payroll_client=None), Decimal(50000), 6)
+            self.assertEqual(result["personal_rate_pct"], expected)
+        for score in [float("nan"), -1, 2, True]:
+            with self.assertRaises(MissingClientData):
+                decide(customer(risk_score=score), Decimal(50000), 6)
+        with self.assertRaises(MissingClientData):
+            decide(customer(has_serious_current_overdue=None), Decimal(50000), 6)
 
     def test_product_bounds(self):
         for amount, term in [(49999, 6), (1500001, 60), (50000, 5), (50000, 61)]:

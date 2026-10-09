@@ -2,7 +2,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 import math
 
-POLICY_VERSION = "consumer-2026-10-09-v1"
+POLICY_VERSION = "consumer-2026-10-09-v2"
 
 
 class MissingClientData(ValueError):
@@ -13,7 +13,7 @@ class MissingClientData(ValueError):
 
 def client_terms(client: dict) -> tuple[Decimal, Decimal]:
     required_flags = ["has_serious_current_overdue",
-                      "is_payroll_client", "is_loyal_client"]
+                      "is_loyal_client"]
     missing = [key for key in required_flags if type(client.get(key)) is not bool]
     # Backend confirms income_rub is verified monthly income; honor an explicit contrary flag.
     if "income_verified" in client and client["income_verified"] is not True:
@@ -21,13 +21,20 @@ def client_terms(client: dict) -> tuple[Decimal, Decimal]:
     income = client.get("income_rub")
     if type(income) not in (int, float) or not math.isfinite(income) or income < 0:
         missing.append("income_rub")
-    if client.get("risk_level") not in ("low", "standard"):
+    risk = client.get("risk_level")
+    if client.get("risk_score") is not None:
+        score = client["risk_score"]
+        if type(score) not in (int, float) or not math.isfinite(score) or not 0 <= score <= 1:
+            missing.append("risk_score")
+        else:
+            risk = "low" if Decimal(str(score)) <= Decimal("0.20") else "standard"
+    if risk not in ("low", "standard"):
         missing.append("risk_level")
     if missing:
         raise MissingClientData(sorted(set(missing)))
-    base = Decimal("17.9") if client["risk_level"] == "low" else Decimal("24.9")
-    discount = Decimal(3) if client["is_loyal_client"] else (
-        Decimal(2) if client["is_payroll_client"] else Decimal(0))
+    base = Decimal("17.9") if risk == "low" else Decimal("24.9")
+    # Payroll discounts are explicitly disabled for this first version.
+    discount = Decimal(3) if client["is_loyal_client"] else Decimal(0)
     return Decimal(str(income)), base - discount
 
 
