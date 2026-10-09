@@ -152,6 +152,15 @@ class CreditApplicationTests(unittest.TestCase):
                 ))
             self.assertEqual(context.exception.status_code, 400)
 
+    def test_client_credit_profile_exposes_known_and_unknown_fields(self):
+        client = asyncio.run(backend.get_client("c-01000"))
+
+        self.assertEqual(client["monthly_income_rub"], client["income_rub"])
+        self.assertIsNone(client["risk_level"])
+        self.assertIsNone(client["has_serious_current_overdue"])
+        self.assertIsNone(client["is_payroll_client"])
+        self.assertTrue(client["is_loyal_client"])
+
 
 if __name__ == "__main__":
     unittest.main()

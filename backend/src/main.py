@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +73,30 @@ _load_seed()
 app = FastAPI(title="backend — ядро данных", version="1.0.0")
 
 
+def _client_view(client: dict[str, Any]) -> dict[str, Any]:
+    """Expose stable credit-profile fields without inventing missing data."""
+    view = dict(client)
+    view["monthly_income_rub"] = client.get("income_rub")
+    view["risk_level"] = None
+    view["has_serious_current_overdue"] = None
+    view["is_payroll_client"] = None
+    joined_at = client.get("joined_at")
+    if not joined_at:
+        view["is_loyal_client"] = None
+    else:
+        try:
+            joined_date = date.fromisoformat(joined_at)
+            today = date.today()
+            try:
+                loyalty_cutoff = today.replace(year=today.year - 1)
+            except ValueError:
+                loyalty_cutoff = today.replace(year=today.year - 1, day=28)
+            view["is_loyal_client"] = joined_date <= loyalty_cutoff
+        except ValueError:
+            view["is_loyal_client"] = None
+    return view
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "team": TEAM_NAME, "block": "backend",
@@ -94,7 +118,7 @@ async def list_clients(
         out = [c for c in out if bool(c.get("has_overdue_history")) == has_overdue]
     if min_income is not None:
         out = [c for c in out if c.get("income_rub", 0) >= min_income]
-    return {"total": len(out), "items": out[:limit]}
+    return {"total": len(out), "items": [_client_view(c) for c in out[:limit]]}
 
 
 @app.get("/clients/{client_id}")
@@ -102,7 +126,7 @@ async def get_client(client_id: str) -> dict:
     c = _clients_by_id.get(client_id)
     if not c:
         raise HTTPException(status_code=404, detail=f"клиент {client_id} не найден")
-    return c
+    return _client_view(c)
 
 
 @app.get("/transactions/{client_id}")
