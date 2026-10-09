@@ -34,6 +34,22 @@ approved_term_months, personal_rate_pct, monthly_payment_rub}`.
 уточнить данные клиента; это не отказ в кредите. Ошибка связи возвращается
 отдельно и также не считается отказом.
 
+### POST /api/crypto-quote
+
+Учебный расчёт пополнения USDT. Retail передаёт запрос в CIB
+`POST /crypto/quote` с `{asset: "USDT", amount_rub}`. Сумма — от 1 000 до
+100 000 рублей. Возвращает условную сумму USDT, курс, комиссию, срок действия
+и признак доступности учебного зачисления. Расчёт не изменяет баланс и не
+является переводом.
+
+### Учебное пополнение после включения backend
+
+После включения учебного сценария retail вызывает backend:
+`POST /crypto-topups` с `{client_id, amount_rub}`, затем показывает сохранённый
+результат и кнопку подтверждения через `POST /crypto-topups/{id}/confirm`.
+До включения доступен только предварительный расчёт; реальные адреса кошельков
+и инструкции по переводу не показываются.
+
 ### Кредитная политика потребительского кредита
 
 Клиентское предложение для массового привлечения клиентов:
@@ -62,8 +78,9 @@ approved_term_months, personal_rate_pct, monthly_payment_rub}`.
 ## Кого я зову у соседей
 
 - backend: `GET /clients`, `GET /transactions/{id}`, `POST /api/transfer`,
-  `POST /credit-applications`
-- cib: `POST /credit/decide` с `{application_id}`
+  `POST /credit-applications`, `POST /crypto-topups`,
+  `GET /crypto-topups/{id}`, `POST /crypto-topups/{id}/confirm`
+- cib: `POST /credit/decide` с `{application_id}`, `POST /crypto/quote`
 
 ## Где работает блок локально
 

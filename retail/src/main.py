@@ -126,3 +126,27 @@ async def api_credit_apply(payload: dict):
     if decision_status >= 400:
         return JSONResponse(status_code=decision_status, content=decision)
     return decision
+
+
+@app.post("/api/crypto-quote")
+async def crypto_quote(payload: dict):
+    """Return a demo USDT quote from CIB; no balance or wallet is changed."""
+    status, body = await _post_json(CIB_URL, "/crypto/quote", payload)
+    return JSONResponse(status_code=status, content=body)
+
+
+@app.post("/api/crypto-topups")
+async def create_crypto_topup(payload: dict):
+    status, body = await _post_json(BACKEND_URL, "/crypto-topups", payload)
+    return JSONResponse(status_code=status, content=body)
+
+
+@app.get("/api/crypto-topups/{topup_id}")
+async def get_crypto_topup(topup_id: str):
+    return await _backend_get(f"/crypto-topups/{topup_id}")
+
+
+@app.post("/api/crypto-topups/{topup_id}/confirm")
+async def confirm_crypto_topup(topup_id: str):
+    status, body = await _post_json(BACKEND_URL, f"/crypto-topups/{topup_id}/confirm", {})
+    return JSONResponse(status_code=status, content=body)

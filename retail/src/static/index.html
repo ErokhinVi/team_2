@@ -187,6 +187,16 @@
     .credit-summary strong { display: block; margin: 4px 0; font-size: 25px; letter-spacing: -0.02em; }
     .credit-summary small { font-size: 11px; }
     .credit-note { margin-top: 16px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .crypto-hero { padding: 18px; border-radius: 12px; background: #e8f0e2; margin-bottom: 18px; }
+    .crypto-hero .eyebrow { font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--good); font-weight: 600; }
+    .crypto-hero h2 { margin: 10px 0 4px; font-size: 22px; letter-spacing: -0.03em; }
+    .crypto-hero p { margin: 0; color: var(--text-2); line-height: 1.45; }
+    .crypto-quote { margin-top: 18px; padding: 14px; border: 1px solid var(--rule); border-radius: 10px; }
+    .crypto-quote-row { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+    .crypto-quote-row:last-child { border-bottom: 0; }
+    .crypto-quote-row span { color: var(--text-2); }
+    .crypto-quote-row strong { text-align: right; }
+    .crypto-disclaimer { margin-top: 16px; color: var(--muted); font-size: 11px; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -209,6 +219,7 @@
     <div class="tabs">
       <button class="tab active" data-tab="transfers">Переводы</button>
       <button class="tab" data-tab="credit">Кредиты</button>
+      <button class="tab" data-tab="crypto">USDT</button>
     </div>
 
     <div class="tab-pane show" data-pane="transfers">
@@ -271,6 +282,23 @@
         <div class="credit-note">Без комиссии за оформление и досрочное погашение. Постоянным клиентам — скидка 3 п.п. Платёж не должен превышать примерно треть подтверждённого дохода.</div>
       </div>
     </div>
+
+    <div class="tab-pane" data-pane="crypto">
+      <div class="crypto-hero">
+        <div class="eyebrow">Только учебный режим</div>
+        <h2>Пополнение USDT — демонстрация</h2>
+        <p>Посмотрите, сколько условных USDT соответствует сумме в рублях.</p>
+      </div>
+      <form id="crypto-form" autocomplete="off">
+        <div class="form-row">
+          <label for="crypto-amount">Сумма, ₽</label>
+          <input id="crypto-amount" type="number" min="1000" max="100000" step="0.01" value="10000" />
+        </div>
+        <button class="btn primary" type="submit">Рассчитать USDT</button>
+      </form>
+      <div id="crypto-result"></div>
+      <div class="crypto-disclaimer">Курс фиксированный учебный: 100 ₽ за USDT. Комиссия 0 ₽, расчёт действует 5 минут. Это предварительный расчёт, не перевод и не зачисление.</div>
+    </div>
   </div>
 
   <script>
@@ -286,6 +314,9 @@
     const creditTerm = document.getElementById("credit-term");
     const creditPayment = document.getElementById("credit-payment");
     const creditResult = document.getElementById("credit-result");
+    const cryptoForm = document.getElementById("crypto-form");
+    const cryptoAmount = document.getElementById("crypto-amount");
+    const cryptoResult = document.getElementById("crypto-result");
 
     // ---- табы ----
     document.querySelectorAll(".tab").forEach(btn => {
@@ -457,6 +488,39 @@
         }
       } catch(e) {
         creditResult.innerHTML = `<div class="alert error">сервис временно недоступен</div>`;
+      }
+    });
+
+    // ---- демонстрационный расчёт USDT ----
+    cryptoForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const amount = Number(cryptoAmount.value);
+      cryptoResult.innerHTML = "";
+      if (!Number.isFinite(amount) || amount < 1000 || amount > 100000) {
+        cryptoResult.innerHTML = `<div class="alert error">введите сумму от 1 000 до 100 000 ₽</div>`;
+        return;
+      }
+      try {
+        const r = await fetch("/api/crypto-quote", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({asset: "USDT", amount_rub: amount.toFixed(2)}),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          cryptoResult.innerHTML = `<div class="alert error">${d.detail || "не удалось получить расчёт"}</div>`;
+          return;
+        }
+        const expires = d.expires_at ? new Date(d.expires_at).toLocaleTimeString("ru-RU", {hour: "2-digit", minute: "2-digit"}) : "через 5 минут";
+        cryptoResult.innerHTML = `<div class="crypto-quote">
+          <div class="crypto-quote-row"><span>К зачислению условно</span><strong>${d.crypto_amount || "—"} USDT</strong></div>
+          <div class="crypto-quote-row"><span>Сумма в рублях</span><strong>${d.amount_rub || amount.toFixed(2)} ₽</strong></div>
+          <div class="crypto-quote-row"><span>Курс</span><strong>${d.rate_rub_per_unit || "100.00"} ₽ за USDT</strong></div>
+          <div class="crypto-quote-row"><span>Комиссия</span><strong>${d.fee_rub || "0.00"} ₽</strong></div>
+          <div class="crypto-quote-row"><span>Расчёт действует до</span><strong>${expires}</strong></div>
+        </div><div class="alert info">${d.notice || "Учебный расчёт. Реального перевода нет."}</div>`;
+      } catch(e) {
+        cryptoResult.innerHTML = `<div class="alert error">сервис расчёта временно недоступен</div>`;
       }
     });
 
