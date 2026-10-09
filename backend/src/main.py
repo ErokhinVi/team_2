@@ -37,6 +37,12 @@ SEED_DIR = _find_seed_dir()
 _clients: list[dict[str, Any]] = []
 _clients_by_id: dict[str, dict[str, Any]] = {}
 _transactions: list[dict[str, Any]] = []
+_credit_applications: dict[str, dict[str, Any]] = {}
+
+CREDIT_MIN_AMOUNT_RUB = 50_000
+CREDIT_MAX_AMOUNT_RUB = 1_500_000
+CREDIT_MIN_TERM_MONTHS = 6
+CREDIT_MAX_TERM_MONTHS = 60
 
 
 def _load_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -106,6 +112,107 @@ async def get_transactions(
     txs = [t for t in _transactions if t["client_id"] == client_id]
     txs.sort(key=lambda t: t["ts"], reverse=True)
     return {"total": len(txs), "items": txs[:limit]}
+
+
+def _credit_application_view(application: dict[str, Any]) -> dict[str, Any]:
+    return dict(application)
+
+
+@app.post("/credit-applications")
+async def create_credit_application(payload: dict) -> dict:
+    client_id = payload.get("client_id")
+    if client_id not in _clients_by_id:
+        raise HTTPException(status_code=404, detail="клиент не найден")
+    try:
+        amount_rub = int(payload.get("amount_rub"))
+        term_months = int(payload.get("term_months"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="укажи сумму и срок кредита")
+    if not CREDIT_MIN_AMOUNT_RUB <= amount_rub <= CREDIT_MAX_AMOUNT_RUB:
+        raise HTTPException(
+            status_code=400,
+            detail=f"сумма должна быть от {CREDIT_MIN_AMOUNT_RUB} до {CREDIT_MAX_AMOUNT_RUB} ₽",
+        )
+    if not CREDIT_MIN_TERM_MONTHS <= term_months <= CREDIT_MAX_TERM_MONTHS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"срок должен быть от {CREDIT_MIN_TERM_MONTHS} до {CREDIT_MAX_TERM_MONTHS} месяцев",
+        )
+    now_iso = datetime.now().replace(microsecond=0).isoformat()
+    application_id = f"ca-{len(_credit_applications) + 1:06d}"
+    application = {
+        "id": application_id,
+        "client_id": client_id,
+        "amount_rub": amount_rub,
+        "term_months": term_months,
+        "status": "pending",
+        "decision": None,
+        "reason_code": None,
+        "reason": None,
+        "approved_amount_rub": None,
+        "approved_term_months": None,
+        "personal_rate_pct": None,
+        "monthly_payment_rub": None,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    _credit_applications[application_id] = application
+    return _credit_application_view(application)
+
+
+@app.get("/credit-applications/{application_id}")
+async def get_credit_application(application_id: str) -> dict:
+    application = _credit_applications.get(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="кредитная заявка не найдена")
+    return _credit_application_view(application)
+
+
+@app.patch("/credit-applications/{application_id}/decision")
+async def record_credit_decision(application_id: str, payload: dict) -> dict:
+    application = _credit_applications.get(application_id)
+    if not application:
+        raise HTTPException(status_code=404, detail="кредитная заявка не найдена")
+    decision = payload.get("decision")
+    if decision not in {"approved", "rejected"}:
+        raise HTTPException(status_code=400, detail="решение должно быть approved или rejected")
+    reason_code = (payload.get("reason_code") or "").strip()
+    reason = (payload.get("reason") or "").strip()
+    if not reason_code or not reason:
+        raise HTTPException(status_code=400, detail="укажи код и причину решения")
+    approved_fields = {
+        "approved_amount_rub": payload.get("approved_amount_rub"),
+        "approved_term_months": payload.get("approved_term_months"),
+        "personal_rate_pct": payload.get("personal_rate_pct"),
+        "monthly_payment_rub": payload.get("monthly_payment_rub"),
+    }
+    if decision == "approved":
+        try:
+            approved_fields["approved_amount_rub"] = int(approved_fields["approved_amount_rub"])
+            approved_fields["approved_term_months"] = int(approved_fields["approved_term_months"])
+            approved_fields["personal_rate_pct"] = float(approved_fields["personal_rate_pct"])
+            approved_fields["monthly_payment_rub"] = int(approved_fields["monthly_payment_rub"])
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="для одобрения нужны параметры кредита")
+        if not CREDIT_MIN_AMOUNT_RUB <= approved_fields["approved_amount_rub"] <= application["amount_rub"]:
+            raise HTTPException(status_code=400, detail="одобренная сумма вне допустимого диапазона")
+        if not CREDIT_MIN_TERM_MONTHS <= approved_fields["approved_term_months"] <= CREDIT_MAX_TERM_MONTHS:
+            raise HTTPException(status_code=400, detail="одобренный срок вне допустимого диапазона")
+        if not 17.9 <= approved_fields["personal_rate_pct"] <= 24.9:
+            raise HTTPException(status_code=400, detail="персональная ставка вне диапазона продукта")
+        if approved_fields["monthly_payment_rub"] <= 0:
+            raise HTTPException(status_code=400, detail="ежемесячный платёж должен быть положительным")
+    else:
+        approved_fields = {field: None for field in approved_fields}
+    application.update({
+        "status": "decided",
+        "decision": decision,
+        "reason_code": reason_code,
+        "reason": reason,
+        **approved_fields,
+        "updated_at": datetime.now().replace(microsecond=0).isoformat(),
+    })
+    return _credit_application_view(application)
 
 
 @app.post("/api/transfer")

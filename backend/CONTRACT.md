@@ -34,6 +34,28 @@ transactions_loaded}`.
 имени получателя (поиск по подстроке). Возвращает `{status, kind
 (internal|external), amount_rub, to, from_client_id, new_balance_rub, tx_id, ts}`.
 
+### POST /credit-applications
+Создаёт кредитную заявку. Принимает JSON
+`{client_id, amount_rub, term_months}`. Сумма — от 50 000 до 1 500 000 ₽,
+срок — от 6 до 60 месяцев. Возвращает заявку со `status: pending` и полями
+`{id, client_id, amount_rub, term_months, status, decision, reason_code,
+reason, approved_amount_rub, approved_term_months, personal_rate_pct,
+monthly_payment_rub, created_at, updated_at}`. `404`, если клиент не найден;
+`400`, если сумма, срок или формат запроса неверны.
+
+### GET /credit-applications/{application_id}
+Возвращает кредитную заявку по идентификатору со всеми полями заявки.
+`404`, если заявка не найдена.
+
+### PATCH /credit-applications/{application_id}/decision
+Записывает решение CIB. Принимает JSON
+`{decision, reason_code, reason, approved_amount_rub,
+approved_term_months, personal_rate_pct, monthly_payment_rub}`. `decision` —
+`approved` или `rejected`. Для одобрения обязательны одобренная сумма, срок,
+персональная ставка от 17,9% до 24,9% и положительный ежемесячный платёж.
+Возвращает заявку со `status: decided`. `404`, если заявка не найдена;
+`400`, если решение или его параметры неверны.
+
 ## Кого я зову у соседей
 
 Никого. backend — это ядро данных, оно ничего не зовёт у retail и cib.
@@ -75,17 +97,19 @@ transactions_loaded}`.
 6. Первая версия возвращает `approved` или `rejected`, понятный `reason_code`,
    одобренную сумму, срок и персональную ставку.
 
-### Этап 1. Backend — заявки и хранение
+### Этап 1. Backend — заявки и хранение (реализовано)
 
-1. Добавить модель заявки с полями `id`, `client_id`, `amount_rub`,
+1. Реализована модель заявки с полями `id`, `client_id`, `amount_rub`,
    `term_months`, `status`, `decision`, `reason_code`, `reason`,
    `approved_amount_rub`, `approved_term_months`, `personal_rate_pct`,
    `monthly_payment_rub`, `created_at` и `updated_at`.
-2. Добавить `POST /credit-applications` для создания заявки. Проверять,
+2. Реализован `POST /credit-applications` для создания заявки. Проверяет,
    что клиент существует, сумма и срок положительные; новая заявка получает
    статус `pending`.
-3. Добавить `GET /credit-applications/{application_id}` для чтения заявки.
-4. При изменении интерфейсов сразу дописать точные поля ответа в этот
+3. Реализован `GET /credit-applications/{application_id}` для чтения заявки.
+4. Реализован `PATCH /credit-applications/{application_id}/decision` для
+   записи решения CIB; точные поля ответа указаны выше.
+5. При изменении интерфейсов сразу дописывать точные поля ответа в этот
    контракт и сообщить об этом retail и cib.
 
 ### Этап 2. CIB — решение
