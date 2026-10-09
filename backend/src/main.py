@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime
+import urllib.error
+import urllib.request
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +18,7 @@ from fastapi import FastAPI, HTTPException, Query
 
 TEAM_NAME = os.environ.get("TEAM_NAME", "team")
 COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local")
+CIB_URL = os.environ.get("CIB_URL", "http://localhost:8002").rstrip("/")
 
 
 def _find_seed_dir() -> Path | None:
@@ -38,6 +41,7 @@ _clients: list[dict[str, Any]] = []
 _clients_by_id: dict[str, dict[str, Any]] = {}
 _transactions: list[dict[str, Any]] = []
 _credit_applications: dict[str, dict[str, Any]] = {}
+_crypto_topups: dict[str, dict[str, Any]] = {}
 
 CREDIT_MIN_AMOUNT_RUB = 50_000
 CREDIT_MAX_AMOUNT_RUB = 1_500_000
@@ -46,6 +50,8 @@ CREDIT_MAX_TERM_MONTHS = 60
 CREDIT_MIN_RATE_PCT = 14.9
 CREDIT_MAX_RATE_PCT = 24.9
 CREDIT_LOW_RISK_MAX_SCORE = 0.20
+CRYPTO_MIN_AMOUNT_RUB = 1_000
+CRYPTO_MAX_AMOUNT_RUB = 100_000
 
 # Учебные значения для совместной проверки CIB. Остальные клиенты не имеют
 # подтверждённого источника текущей просрочки и получают None.
@@ -154,6 +160,139 @@ async def get_transactions(
 
 def _credit_application_view(application: dict[str, Any]) -> dict[str, Any]:
     return dict(application)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _parse_expiry(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _request_crypto_quote(amount_rub: int) -> dict[str, Any]:
+    request = urllib.request.Request(
+        f"{CIB_URL}/crypto/quote",
+        data=json.dumps({"amount_rub": amount_rub}).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            quote = json.loads(response.read().decode("utf-8"))
+    except (urllib.error.URLError, TimeoutError, ValueError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=503, detail="котировка CIB недоступна") from exc
+    if not isinstance(quote, dict):
+        raise HTTPException(status_code=502, detail="CIB вернул некорректную котировку")
+    return quote
+
+
+def _crypto_topup_view(topup: dict[str, Any]) -> dict[str, Any]:
+    return dict(topup)
+
+
+@app.post("/crypto-topups")
+async def create_crypto_topup(payload: dict) -> dict:
+    client_id = payload.get("client_id")
+    if client_id not in _clients_by_id:
+        raise HTTPException(status_code=404, detail="клиент не найден")
+    try:
+        amount_rub = int(payload.get("amount_rub"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="укажи сумму пополнения")
+    if not CRYPTO_MIN_AMOUNT_RUB <= amount_rub <= CRYPTO_MAX_AMOUNT_RUB:
+        raise HTTPException(
+            status_code=400,
+            detail=f"сумма должна быть от {CRYPTO_MIN_AMOUNT_RUB} до {CRYPTO_MAX_AMOUNT_RUB} ₽",
+        )
+    quote = _request_crypto_quote(amount_rub)
+    try:
+        quote_amount = int(quote["amount_rub"])
+        amount_usdt = float(quote["amount_usdt"])
+        rate = float(quote["rate_rub_per_usdt"])
+        fee_rub = int(quote["fee_rub"])
+        expires_at = quote["expires_at"]
+        expiry = _parse_expiry(expires_at)
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=502, detail="CIB вернул неполную котировку")
+    if (
+        quote_amount != amount_rub
+        or amount_usdt <= 0
+        or rate <= 0
+        or fee_rub != 0
+        or expiry <= _utcnow()
+    ):
+        raise HTTPException(status_code=502, detail="CIB вернул недействительную котировку")
+    topup_id = f"ct-{len(_crypto_topups) + 1:06d}"
+    now_iso = _utcnow().isoformat()
+    topup = {
+        "id": topup_id,
+        "client_id": client_id,
+        "amount_rub": amount_rub,
+        "amount_usdt": amount_usdt,
+        "rate_rub_per_usdt": rate,
+        "fee_rub": fee_rub,
+        "expires_at": expires_at,
+        "status": "pending",
+        "demo": True,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+        "transaction_id": None,
+        "credited_at": None,
+    }
+    _crypto_topups[topup_id] = topup
+    return _crypto_topup_view(topup)
+
+
+@app.get("/crypto-topups/{topup_id}")
+async def get_crypto_topup(topup_id: str) -> dict:
+    topup = _crypto_topups.get(topup_id)
+    if not topup:
+        raise HTTPException(status_code=404, detail="учебное пополнение не найдено")
+    return _crypto_topup_view(topup)
+
+
+@app.post("/crypto-topups/{topup_id}/confirm")
+async def confirm_crypto_topup(topup_id: str) -> dict:
+    topup = _crypto_topups.get(topup_id)
+    if not topup:
+        raise HTTPException(status_code=404, detail="учебное пополнение не найдено")
+    if topup["status"] == "credited":
+        return _crypto_topup_view(topup)
+    if topup["status"] != "pending":
+        raise HTTPException(status_code=409, detail="учебное пополнение недоступно")
+    try:
+        expired = _parse_expiry(topup["expires_at"]) <= _utcnow()
+    except (TypeError, ValueError):
+        expired = True
+    if expired:
+        topup["status"] = "expired"
+        topup["updated_at"] = _utcnow().isoformat()
+        raise HTTPException(status_code=409, detail="срок действия котировки истёк")
+    client = _clients_by_id[topup["client_id"]]
+    transaction_id = f"crypto-demo-{len(_transactions) + 1:08d}"
+    client["balance_rub"] += topup["amount_rub"]
+    _transactions.append({
+        "id": transaction_id,
+        "client_id": topup["client_id"],
+        "type": "crypto_topup_demo",
+        "amount_rub": topup["amount_rub"],
+        "ts": _utcnow().isoformat(),
+        "counterparty": "USDT demo",
+        "crypto_topup_id": topup_id,
+        "demo": True,
+    })
+    topup.update({
+        "status": "credited",
+        "transaction_id": transaction_id,
+        "credited_at": _utcnow().isoformat(),
+        "updated_at": _utcnow().isoformat(),
+        "new_balance_rub": client["balance_rub"],
+    })
+    return _crypto_topup_view(topup)
 
 
 @app.post("/credit-applications")

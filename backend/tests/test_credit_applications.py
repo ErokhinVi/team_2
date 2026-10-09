@@ -40,6 +40,8 @@ class CreditApplicationTests(unittest.TestCase):
     def setUp(self):
         if hasattr(backend, "_credit_applications"):
             backend._credit_applications.clear()
+        if hasattr(backend, "_crypto_topups"):
+            backend._crypto_topups.clear()
 
     def test_creates_pending_application_for_valid_request(self):
         result = asyncio.run(backend.create_credit_application({
@@ -214,6 +216,79 @@ class CreditApplicationTests(unittest.TestCase):
                 "reason_code": "client_data_incomplete",
                 "reason": "Нужны дополнительные сведения",
             }))
+
+        self.assertEqual(context.exception.status_code, 409)
+
+    def test_creates_demo_crypto_topup_from_cib_quote(self):
+        backend._request_crypto_quote = lambda amount_rub: {
+            "amount_rub": amount_rub,
+            "amount_usdt": amount_rub / 100,
+            "rate_rub_per_usdt": 100,
+            "fee_rub": 0,
+            "expires_at": "2099-01-01T00:05:00+00:00",
+        }
+
+        result = asyncio.run(backend.create_crypto_topup({
+            "client_id": "c-01000",
+            "amount_rub": 10_000,
+        }))
+
+        self.assertEqual(result["status"], "pending")
+        self.assertEqual(result["amount_usdt"], 100)
+        self.assertTrue(result["demo"])
+        self.assertEqual(result["fee_rub"], 0)
+
+    def test_rejects_crypto_topup_amount_outside_limits(self):
+        with self.assertRaises(_FakeHTTPException) as context:
+            asyncio.run(backend.create_crypto_topup({
+                "client_id": "c-01000",
+                "amount_rub": 999,
+            }))
+
+        self.assertEqual(context.exception.status_code, 400)
+
+    def test_confirms_crypto_topup_once_and_repeat_does_not_double_credit(self):
+        backend._request_crypto_quote = lambda amount_rub: {
+            "amount_rub": amount_rub,
+            "amount_usdt": amount_rub / 100,
+            "rate_rub_per_usdt": 100,
+            "fee_rub": 0,
+            "expires_at": "2099-01-01T00:05:00+00:00",
+        }
+        topup = asyncio.run(backend.create_crypto_topup({
+            "client_id": "c-01000",
+            "amount_rub": 10_000,
+        }))
+        balance_before = backend._clients_by_id["c-01000"]["balance_rub"]
+
+        first = asyncio.run(backend.confirm_crypto_topup(topup["id"]))
+        repeated = asyncio.run(backend.confirm_crypto_topup(topup["id"]))
+
+        self.assertEqual(first, repeated)
+        self.assertEqual(
+            backend._clients_by_id["c-01000"]["balance_rub"], balance_before + 10_000,
+        )
+        self.assertEqual(
+            len([t for t in backend._transactions if t.get("crypto_topup_id") == topup["id"]]),
+            1,
+        )
+
+    def test_expired_crypto_topup_is_not_credited(self):
+        backend._request_crypto_quote = lambda amount_rub: {
+            "amount_rub": amount_rub,
+            "amount_usdt": amount_rub / 100,
+            "rate_rub_per_usdt": 100,
+            "fee_rub": 0,
+            "expires_at": "2099-01-01T00:05:00+00:00",
+        }
+        topup = asyncio.run(backend.create_crypto_topup({
+            "client_id": "c-01000",
+            "amount_rub": 10_000,
+        }))
+        backend._crypto_topups[topup["id"]]["expires_at"] = "2000-01-01T00:05:00+00:00"
+
+        with self.assertRaises(_FakeHTTPException) as context:
+            asyncio.run(backend.confirm_crypto_topup(topup["id"]))
 
         self.assertEqual(context.exception.status_code, 409)
 
