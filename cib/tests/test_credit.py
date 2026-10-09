@@ -28,13 +28,13 @@ class CreditPreparationTests(unittest.TestCase):
             response = client.get("/products")
             self.assertEqual(response.status_code, 200)
             body = response.json()
-            self.assertEqual(body["total"], 3)
+            self.assertEqual(body["total"], 4)
             products = {p["id"]: p for p in body["items"]}
             self.assertIn("card-debit", products)
             self.assertEqual(products["deposit-base"]["rate_pct"], 14.0)
             self.assertFalse(products["credit-consumer"]["application_available"])
             self.assertIn("Потребительский кредит", client.get("/").text)
-            self.assertEqual(client.get("/health").json()["products"], 3)
+            self.assertEqual(client.get("/health").json()["products"], 4)
 
 
 if __name__ == "__main__":

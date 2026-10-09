@@ -12,6 +12,7 @@ import os
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from src.credit_api import router as credit_router
+from src.crypto import PRODUCT as CRYPTO_PRODUCT, router as crypto_router
 
 TEAM_NAME = os.environ.get("TEAM_NAME", "team")
 COMMIT = os.environ.get("RENDER_GIT_COMMIT", "local")
@@ -33,9 +34,11 @@ PRODUCTS = [
         "availability_reason": "Ожидаем обозначенных демонстрационных клиентов и совместную проверку",
     },
 ]
+PRODUCTS.append(CRYPTO_PRODUCT)
 
 app = FastAPI(title="cib — корпоратив и бизнес-логика", version="1.0.0")
 app.include_router(credit_router)
+app.include_router(crypto_router)
 
 
 @app.get("/health")
@@ -65,5 +68,6 @@ async def index() -> str:
         "<h1>cib — корпоратив и бизнес-логика</h1>"
         f"<p>Команда: {TEAM_NAME}. Каталог продуктов:</p>"
         f"<table><tr><th>id</th><th>вид</th><th>название</th></tr>{rows}</table>"
+        "<p><a style='color:#ffed00' href='/crypto/demo'>Попробовать учебный расчёт пополнения USDT</a></p>"
         "</body></html>"
     )
